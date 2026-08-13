@@ -17,6 +17,7 @@ from .feature_extractor import (
 from .feature_memory import build_feature_memory
 from .nearest_neighbors import compute_nearest_neighbor_distances
 from .patch_embeddings import create_patch_embeddings
+from .feature_memory_sampling import sample_feature_memory
 
 __all__ = [
     "AnomalyScoreBatch",
@@ -32,4 +33,5 @@ __all__ = [
     "create_patch_embeddings",
     "create_resnet18_feature_extractor",
     "create_resnet18_patch_embedding_extractor",
+    "sample_feature_memory",
 ]

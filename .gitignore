@@ -43,7 +43,7 @@ validation-reports/
 # Generated model artifacts
 *.onnx
 *.onnx.data
-artifacts/
+/artifacts/
 outputs/
 checkpoints/
 /models/

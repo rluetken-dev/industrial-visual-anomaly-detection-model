@@ -23,6 +23,7 @@ from industrial_visual_anomaly_detection.models import (
     build_feature_memory,
     compute_patch_scores_for_batches,
     create_resnet18_patch_embedding_extractor,
+    sample_feature_memory,
 )
 from industrial_visual_anomaly_detection.preprocessing import (
     create_image_preprocessing,
@@ -41,6 +42,8 @@ def parse_arguments() -> Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--memory-chunk-size", type=int, default=4096)
     parser.add_argument("--input-size", type=int, default=224)
+    parser.add_argument("--memory-fraction", type=float, default=1.0)
+    parser.add_argument("--sampling-seed", type=int, default=42)
     return parser.parse_args()
 
 
@@ -70,9 +73,7 @@ def print_score_rule_results(
         expected_test_labels,
     )
 
-    groups = sorted(
-        {image.group for image in labeled_test_images}
-    )
+    groups = sorted({image.group for image in labeled_test_images})
 
     print()
     print(f"=== Aggregation: {name} ===")
@@ -93,10 +94,7 @@ def print_score_rule_results(
     print("Test score distribution by group:")
 
     for group in groups:
-        group_indices = select_group_indices(
-            labeled_test_images,
-            group,
-        )
+        group_indices = select_group_indices(labeled_test_images, group)
         group_scores = test_scores[group_indices]
 
         print(
@@ -121,14 +119,9 @@ def print_score_rule_results(
     print("Detection rate by test group:")
 
     for group in groups:
-        group_indices = select_group_indices(
-            labeled_test_images,
-            group,
-        )
+        group_indices = select_group_indices(labeled_test_images, group)
         group_predictions = predictions[group_indices]
-        predicted_anomalies = int(
-            group_predictions.sum().item()
-        )
+        predicted_anomalies = int(group_predictions.sum().item())
 
         print(
             f"- {group}: "
@@ -140,11 +133,7 @@ def print_score_rule_results(
     false_negative_indices = [
         index
         for index, (prediction, expected_label) in enumerate(
-            zip(
-                predictions,
-                expected_test_labels,
-                strict=True,
-            )
+            zip(predictions, expected_test_labels, strict=True)
         )
         if not prediction.item() and expected_label.item()
     ]
@@ -178,11 +167,13 @@ def main() -> None:
     if arguments.input_size % 32 != 0:
         raise ValueError("Input size must be divisible by 32.")
 
+    if not 0.0 < arguments.memory_fraction <= 1.0:
+        raise ValueError(
+            "Memory fraction must be greater than zero and at most one."
+        )
+
     patch_grid_side = arguments.input_size // 8
-    patch_grid_size = (
-        patch_grid_side,
-        patch_grid_side,
-    )
+    patch_grid_size = (patch_grid_side, patch_grid_side)
 
     manifest = load_split_manifest(arguments.manifest)
     validate_split_manifest(manifest)
@@ -202,29 +193,15 @@ def main() -> None:
         dataset_root,
         manifest.category,
     )
-    test_image_paths = tuple(
-        image.path for image in labeled_test_images
-    )
+    test_image_paths = tuple(image.path for image in labeled_test_images)
 
     preprocessing = create_image_preprocessing(
-        input_size=(
-            arguments.input_size,
-            arguments.input_size,
-        )
+        input_size=(arguments.input_size, arguments.input_size)
     )
 
-    fitting_dataset = ImagePathDataset(
-        fitting_paths,
-        preprocessing,
-    )
-    validation_dataset = ImagePathDataset(
-        validation_paths,
-        preprocessing,
-    )
-    test_dataset = ImagePathDataset(
-        test_image_paths,
-        preprocessing,
-    )
+    fitting_dataset = ImagePathDataset(fitting_paths, preprocessing)
+    validation_dataset = ImagePathDataset(validation_paths, preprocessing)
+    test_dataset = ImagePathDataset(test_image_paths, preprocessing)
 
     fitting_loader = DataLoader(
         fitting_dataset,
@@ -245,15 +222,23 @@ def main() -> None:
         num_workers=0,
     )
 
-    embedding_extractor = (
-        create_resnet18_patch_embedding_extractor()
-    )
+    embedding_extractor = create_resnet18_patch_embedding_extractor()
 
     memory_start = time.perf_counter()
-    feature_memory = build_feature_memory(
+    complete_feature_memory = build_feature_memory(
         fitting_loader,
         embedding_extractor,
     )
+    complete_feature_memory_shape = tuple(complete_feature_memory.shape)
+
+    feature_memory = sample_feature_memory(
+        complete_feature_memory,
+        fraction=arguments.memory_fraction,
+        seed=arguments.sampling_seed,
+    )
+    sampled_feature_memory_shape = tuple(feature_memory.shape)
+    del complete_feature_memory
+
     memory_seconds = time.perf_counter() - memory_start
 
     validation_start = time.perf_counter()
@@ -268,9 +253,7 @@ def main() -> None:
     )
     validation_seconds = time.perf_counter() - validation_start
 
-    expected_validation_paths = tuple(
-        str(path) for path in validation_paths
-    )
+    expected_validation_paths = tuple(str(path) for path in validation_paths)
 
     if validation_scored_paths != expected_validation_paths:
         raise RuntimeError(
@@ -278,20 +261,16 @@ def main() -> None:
         )
 
     test_start = time.perf_counter()
-    test_patch_scores, test_scored_paths = (
-        compute_patch_scores_for_batches(
-            test_loader,
-            embedding_extractor,
-            feature_memory,
-            memory_chunk_size=arguments.memory_chunk_size,
-            patch_grid_size=patch_grid_size,
-        )
+    test_patch_scores, test_scored_paths = compute_patch_scores_for_batches(
+        test_loader,
+        embedding_extractor,
+        feature_memory,
+        memory_chunk_size=arguments.memory_chunk_size,
+        patch_grid_size=patch_grid_size,
     )
     test_seconds = time.perf_counter() - test_start
 
-    expected_test_paths = tuple(
-        str(path) for path in test_image_paths
-    )
+    expected_test_paths = tuple(str(path) for path in test_image_paths)
 
     if test_scored_paths != expected_test_paths:
         raise RuntimeError(
@@ -299,17 +278,14 @@ def main() -> None:
         )
 
     expected_test_labels = torch.tensor(
-        [
-            image.is_anomalous
-            for image in labeled_test_images
-        ],
+        [image.is_anomalous for image in labeled_test_images],
         dtype=torch.bool,
     )
 
     validation_score_rules = {
-        "maximum": validation_patch_scores.flatten(
-            start_dim=1
-        ).max(dim=1).values,
+        "maximum": validation_patch_scores.flatten(start_dim=1)
+        .max(dim=1)
+        .values,
         "top 1 percent mean": aggregate_top_patch_scores(
             validation_patch_scores,
             top_fraction=0.01,
@@ -320,9 +296,7 @@ def main() -> None:
         ),
     }
     test_score_rules = {
-        "maximum": test_patch_scores.flatten(
-            start_dim=1
-        ).max(dim=1).values,
+        "maximum": test_patch_scores.flatten(start_dim=1).max(dim=1).values,
         "top 1 percent mean": aggregate_top_patch_scores(
             test_patch_scores,
             top_fraction=0.01,
@@ -335,26 +309,25 @@ def main() -> None:
 
     print(f"Dataset: {manifest.dataset}")
     print(f"Category: {manifest.category}")
-    print(
-        f"Input size: {arguments.input_size} x "
-        f"{arguments.input_size}"
-    )
+    print(f"Input size: {arguments.input_size} x {arguments.input_size}")
     print(f"Patch grid size: {patch_grid_size}")
     print(f"Fitting images: {len(fitting_dataset)}")
     print(f"Validation images: {len(validation_dataset)}")
     print(f"Test images: {len(test_dataset)}")
-    print(f"Feature memory shape: {tuple(feature_memory.shape)}")
+    print(f"Complete feature memory shape: {complete_feature_memory_shape}")
+    print(f"Sampled feature memory shape: {sampled_feature_memory_shape}")
+    print(f"Feature memory fraction: {arguments.memory_fraction:.4f}")
+    print(f"Feature memory sampling seed: {arguments.sampling_seed}")
     print(
-        f"Feature memory build time: {memory_seconds:.2f} seconds"
+        "Feature memory build and sampling time: "
+        f"{memory_seconds:.2f} seconds"
     )
-    print(
-        f"Validation scoring time: {validation_seconds:.2f} seconds"
-    )
+    print(f"Validation scoring time: {validation_seconds:.2f} seconds")
     print(f"Test scoring time: {test_seconds:.2f} seconds")
     print()
     print(
-        "Note: Aggregation comparisons are exploratory. Input-size "
-        "comparisons must be interpreted as follow-up experiments."
+        "Note: Aggregation and memory-sampling comparisons are exploratory. "
+        "Input-size comparisons must be interpreted as follow-up experiments."
     )
 
     for name, validation_scores in validation_score_rules.items():
