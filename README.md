@@ -1,6 +1,7 @@
 # Industrial Visual Anomaly Detection
 
 [![CI](https://github.com/rluetken-dev/industrial-visual-anomaly-detection-model/actions/workflows/ci.yml/badge.svg)](https://github.com/rluetken-dev/industrial-visual-anomaly-detection-model/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/rluetken-dev/industrial-visual-anomaly-detection-model?include_prereleases)](https://github.com/rluetken-dev/industrial-visual-anomaly-detection-model/releases)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.13-EE4C2C?logo=pytorch&logoColor=white)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
