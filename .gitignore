@@ -1,0 +1,58 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and quality-tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and editor-specific files
+.vscode/
+.idea/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local datasets and derived data
+data/
+datasets/
+validation-reports/
+
+# Generated model artifacts
+*.onnx
+*.onnx.data
+artifacts/
+outputs/
+checkpoints/
+models/
+
+# Experiment and runtime output
+runs/
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
