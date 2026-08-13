@@ -7,6 +7,7 @@ from .feature_extractor import (
     create_resnet18_feature_extractor,
 )
 from .patch_embeddings import create_patch_embeddings
+from .feature_memory import build_feature_memory
 
 __all__ = [
     "PatchEmbeddingExtractor",
@@ -14,4 +15,5 @@ __all__ = [
     "create_patch_embeddings",
     "create_resnet18_feature_extractor",
     "create_resnet18_patch_embedding_extractor",
+    "build_feature_memory",
 ]

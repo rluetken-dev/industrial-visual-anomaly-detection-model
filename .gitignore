@@ -37,7 +37,7 @@ desktop.ini
 
 # Local datasets and derived data
 data/
-datasets/
+/datasets/
 validation-reports/
 
 # Generated model artifacts
