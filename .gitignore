@@ -46,7 +46,7 @@ validation-reports/
 artifacts/
 outputs/
 checkpoints/
-models/
+/models/
 
 # Experiment and runtime output
 runs/
