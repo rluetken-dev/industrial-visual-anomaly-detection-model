@@ -2,11 +2,12 @@ import unittest
 
 import torch
 
-from industrial_visual_anomaly_detection.models import compute_anomaly_scores
-
 from industrial_visual_anomaly_detection.models import (
+    aggregate_patch_scores,
+    aggregate_top_patch_scores,
     compute_anomaly_scores,
     compute_image_scores_for_batches,
+    compute_patch_scores_for_batches,
 )
 
 
@@ -181,6 +182,141 @@ class AnomalyScoringTests(unittest.TestCase):
                 torch.zeros(3, 2),
                 patch_grid_size=(2, 2),
             )
+
+    def test_top_patch_fraction_is_averaged_per_image(self) -> None:
+        patch_scores = torch.tensor(
+            [
+                [
+                    [1.0, 2.0],
+                    [3.0, 4.0],
+                ],
+                [
+                    [10.0, 20.0],
+                    [30.0, 40.0],
+                ],
+            ]
+        )
+
+        image_scores = aggregate_top_patch_scores(
+            patch_scores,
+            top_fraction=0.5,
+        )
+
+        self.assertTrue(
+            torch.allclose(
+                image_scores,
+                torch.tensor([3.5, 35.0]),
+            )
+        )
+
+    def test_small_top_fraction_selects_at_least_one_patch(self) -> None:
+        image_scores = aggregate_top_patch_scores(
+            torch.tensor(
+                [
+                    [
+                        [1.0, 2.0],
+                        [3.0, 4.0],
+                    ]
+                ]
+            ),
+            top_fraction=0.01,
+        )
+
+        self.assertTrue(
+            torch.equal(
+                image_scores,
+                torch.tensor([4.0]),
+            )
+        )
+
+    def test_invalid_top_fraction_is_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "greater than zero and at most one",
+        ):
+            aggregate_top_patch_scores(
+                torch.zeros(1, 2, 2),
+                top_fraction=0.0,
+            )
+
+    def test_patch_batch_scoring_preserves_grids_and_paths(self) -> None:
+        batches = [
+            (
+                torch.tensor([[1.0], [2.0]]),
+                ["image-001.png", "image-002.png"],
+            )
+        ]
+
+        patch_scores, image_paths = compute_patch_scores_for_batches(
+            batches,
+            FakeEmbeddingExtractor(),
+            torch.tensor([[0.0]]),
+            memory_chunk_size=1,
+        )
+
+        self.assertEqual((2, 28, 28), tuple(patch_scores.shape))
+        self.assertEqual(
+            ("image-001.png", "image-002.png"),
+            image_paths,
+        )
+        self.assertTrue(
+            torch.equal(
+                patch_scores[:, 0, 0],
+                torch.tensor([1.0, 2.0]),
+            )
+        )
+
+    def test_maximum_aggregation_selects_highest_patch(self) -> None:
+        image_scores = aggregate_patch_scores(
+            torch.tensor(
+                [
+                    [
+                        [1.0, 4.0],
+                        [2.0, 3.0],
+                    ]
+                ]
+            ),
+            method="maximum",
+        )
+
+        self.assertTrue(
+            torch.equal(
+                image_scores,
+                torch.tensor([4.0]),
+            )
+        )
+
+    def test_unknown_aggregation_method_is_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "Unsupported",
+        ):
+            aggregate_patch_scores(
+                torch.zeros(1, 2, 2),
+                method="unknown",
+            )
+
+    def test_anomaly_scoring_supports_top_fraction_mean(self) -> None:
+        result = compute_anomaly_scores(
+            query_embeddings=torch.tensor(
+                [
+                    [1.0],
+                    [2.0],
+                    [3.0],
+                    [4.0],
+                ]
+            ),
+            feature_memory=torch.tensor([[0.0]]),
+            patch_grid_size=(2, 2),
+            aggregation_method="top_fraction_mean",
+            top_fraction=0.5,
+        )
+
+        self.assertAlmostEqual(
+            3.5,
+            result.image_scores[0].item(),
+            places=6,
+        )
 
 
 if __name__ == "__main__":

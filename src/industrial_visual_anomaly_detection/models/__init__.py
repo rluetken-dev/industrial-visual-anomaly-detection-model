@@ -1,7 +1,10 @@
 from .anomaly_scoring import (
     AnomalyScoreBatch,
+    aggregate_patch_scores,
+    aggregate_top_patch_scores,
     compute_anomaly_scores,
     compute_image_scores_for_batches,
+    compute_patch_scores_for_batches,
 )
 from .embedding_extractor import (
     PatchEmbeddingExtractor,
@@ -19,10 +22,13 @@ __all__ = [
     "AnomalyScoreBatch",
     "PatchEmbeddingExtractor",
     "ResNet18FeatureExtractor",
+    "aggregate_patch_scores",
+    "aggregate_top_patch_scores",
     "build_feature_memory",
     "compute_anomaly_scores",
     "compute_image_scores_for_batches",
     "compute_nearest_neighbor_distances",
+    "compute_patch_scores_for_batches",
     "create_patch_embeddings",
     "create_resnet18_feature_extractor",
     "create_resnet18_patch_embedding_extractor",

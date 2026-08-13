@@ -7,31 +7,33 @@ from torch.utils.data import DataLoader
 
 from industrial_visual_anomaly_detection.datasets import (
     ImagePathDataset,
+    LabeledImage,
     discover_mvtec_ad_test_images,
     load_split_manifest,
     resolve_dataset_image_paths,
     validate_split_manifest,
-)
-from industrial_visual_anomaly_detection.models import (
-    build_feature_memory,
-    compute_image_scores_for_batches,
-    create_resnet18_patch_embedding_extractor,
-)
-from industrial_visual_anomaly_detection.preprocessing import (
-    create_bottle_preprocessing,
 )
 from industrial_visual_anomaly_detection.evaluation import (
     classify_anomaly_scores,
     compute_binary_classification_metrics,
     select_maximum_normal_threshold,
 )
+from industrial_visual_anomaly_detection.models import (
+    aggregate_top_patch_scores,
+    build_feature_memory,
+    compute_patch_scores_for_batches,
+    create_resnet18_patch_embedding_extractor,
+)
+from industrial_visual_anomaly_detection.preprocessing import (
+    create_bottle_preprocessing,
+)
 
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser(
         description=(
-            "Build the Bottle feature memory and evaluate the normal "
-            "validation partition and labeled test partition."
+            "Compare maximum and top-patch mean aggregation for the "
+            "MVTec AD Bottle baseline."
         )
     )
     parser.add_argument("--dataset-root", required=True, type=Path)
@@ -39,6 +41,125 @@ def parse_arguments() -> Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--memory-chunk-size", type=int, default=4096)
     return parser.parse_args()
+
+
+def select_group_indices(
+    labeled_images: tuple[LabeledImage, ...],
+    group: str,
+) -> list[int]:
+    return [
+        index
+        for index, image in enumerate(labeled_images)
+        if image.group == group
+    ]
+
+
+def print_score_rule_results(
+    name: str,
+    validation_scores: torch.Tensor,
+    test_scores: torch.Tensor,
+    test_paths: tuple[str, ...],
+    labeled_test_images: tuple[LabeledImage, ...],
+    expected_test_labels: torch.Tensor,
+) -> None:
+    threshold = select_maximum_normal_threshold(validation_scores)
+    predictions = classify_anomaly_scores(test_scores, threshold)
+    metrics = compute_binary_classification_metrics(
+        predictions,
+        expected_test_labels,
+    )
+
+    groups = sorted(
+        {image.group for image in labeled_test_images}
+    )
+
+    print()
+    print(f"=== Aggregation: {name} ===")
+    print("Normal validation score distribution:")
+    print(f"- minimum: {validation_scores.min().item():.6f}")
+    print(f"- mean: {validation_scores.mean().item():.6f}")
+    print(f"- median: {validation_scores.median().item():.6f}")
+    print(
+        "- standard deviation: "
+        f"{validation_scores.std(unbiased=False).item():.6f}"
+    )
+    print(
+        "- 95th percentile: "
+        f"{torch.quantile(validation_scores, 0.95).item():.6f}"
+    )
+    print(f"- maximum and threshold: {threshold:.6f}")
+    print()
+    print("Test score distribution by group:")
+
+    for group in groups:
+        group_indices = select_group_indices(
+            labeled_test_images,
+            group,
+        )
+        group_scores = test_scores[group_indices]
+
+        print(
+            f"- {group}: "
+            f"count={group_scores.numel()}, "
+            f"min={group_scores.min().item():.6f}, "
+            f"mean={group_scores.mean().item():.6f}, "
+            f"max={group_scores.max().item():.6f}"
+        )
+
+    print()
+    print("Classification results:")
+    print(f"- true positives: {metrics.true_positives}")
+    print(f"- true negatives: {metrics.true_negatives}")
+    print(f"- false positives: {metrics.false_positives}")
+    print(f"- false negatives: {metrics.false_negatives}")
+    print(f"- accuracy: {metrics.accuracy:.4f}")
+    print(f"- precision: {metrics.precision:.4f}")
+    print(f"- recall: {metrics.recall:.4f}")
+    print(f"- F1 score: {metrics.f1_score:.4f}")
+    print()
+    print("Detection rate by test group:")
+
+    for group in groups:
+        group_indices = select_group_indices(
+            labeled_test_images,
+            group,
+        )
+        group_predictions = predictions[group_indices]
+        predicted_anomalies = int(
+            group_predictions.sum().item()
+        )
+
+        print(
+            f"- {group}: "
+            f"predicted anomalous={predicted_anomalies}/"
+            f"{len(group_indices)}, "
+            f"rate={predicted_anomalies / len(group_indices):.4f}"
+        )
+
+    false_negative_indices = [
+        index
+        for index, (prediction, expected_label) in enumerate(
+            zip(
+                predictions,
+                expected_test_labels,
+                strict=True,
+            )
+        )
+        if not prediction.item() and expected_label.item()
+    ]
+
+    print()
+    print("False negatives:")
+
+    if not false_negative_indices:
+        print("- none")
+    else:
+        for index in false_negative_indices:
+            print(
+                f"- score={test_scores[index].item():.6f}, "
+                f"group={labeled_test_images[index].group}, "
+                f"path={test_paths[index]}"
+            )
 
 
 def main() -> None:
@@ -68,7 +189,7 @@ def main() -> None:
         dataset_root,
         manifest.category,
     )
-    test_paths = tuple(
+    test_image_paths = tuple(
         image.path for image in labeled_test_images
     )
 
@@ -83,7 +204,7 @@ def main() -> None:
         preprocessing,
     )
     test_dataset = ImagePathDataset(
-        test_paths,
+        test_image_paths,
         preprocessing,
     )
 
@@ -111,28 +232,22 @@ def main() -> None:
     )
 
     memory_start = time.perf_counter()
-
     feature_memory = build_feature_memory(
         fitting_loader,
         embedding_extractor,
     )
-
     memory_seconds = time.perf_counter() - memory_start
 
-    validation_scoring_start = time.perf_counter()
-
-    validation_scores, validation_scored_paths = (
-        compute_image_scores_for_batches(
+    validation_start = time.perf_counter()
+    validation_patch_scores, validation_scored_paths = (
+        compute_patch_scores_for_batches(
             validation_loader,
             embedding_extractor,
             feature_memory,
             memory_chunk_size=arguments.memory_chunk_size,
         )
     )
-
-    validation_scoring_seconds = (
-        time.perf_counter() - validation_scoring_start
-    )
+    validation_seconds = time.perf_counter() - validation_start
 
     expected_validation_paths = tuple(
         str(path) for path in validation_paths
@@ -143,34 +258,25 @@ def main() -> None:
             "Validation score paths do not match the manifest order."
         )
 
-    test_scoring_start = time.perf_counter()
-
-    test_scores, test_scored_paths = compute_image_scores_for_batches(
-        test_loader,
-        embedding_extractor,
-        feature_memory,
-        memory_chunk_size=arguments.memory_chunk_size,
+    test_start = time.perf_counter()
+    test_patch_scores, test_scored_paths = (
+        compute_patch_scores_for_batches(
+            test_loader,
+            embedding_extractor,
+            feature_memory,
+            memory_chunk_size=arguments.memory_chunk_size,
+        )
     )
-
-    test_scoring_seconds = time.perf_counter() - test_scoring_start
+    test_seconds = time.perf_counter() - test_start
 
     expected_test_paths = tuple(
-        str(path) for path in test_paths
+        str(path) for path in test_image_paths
     )
 
     if test_scored_paths != expected_test_paths:
         raise RuntimeError(
             "Test score paths do not match the discovered test-image order."
         )
-
-    threshold = select_maximum_normal_threshold(
-        validation_scores
-    )
-
-    test_predictions = classify_anomaly_scores(
-        test_scores,
-        threshold,
-    )
 
     expected_test_labels = torch.tensor(
         [
@@ -180,143 +286,61 @@ def main() -> None:
         dtype=torch.bool,
     )
 
-    metrics = compute_binary_classification_metrics(
-        test_predictions,
-        expected_test_labels,
-    )
-
-    sorted_validation_scores, sorted_validation_indices = torch.sort(
-        validation_scores,
-        descending=True,
-    )
+    validation_score_rules = {
+        "maximum": validation_patch_scores.flatten(
+            start_dim=1
+        ).max(dim=1).values,
+        "top 1 percent mean": aggregate_top_patch_scores(
+            validation_patch_scores,
+            top_fraction=0.01,
+        ),
+        "top 5 percent mean": aggregate_top_patch_scores(
+            validation_patch_scores,
+            top_fraction=0.05,
+        ),
+    }
+    test_score_rules = {
+        "maximum": test_patch_scores.flatten(
+            start_dim=1
+        ).max(dim=1).values,
+        "top 1 percent mean": aggregate_top_patch_scores(
+            test_patch_scores,
+            top_fraction=0.01,
+        ),
+        "top 5 percent mean": aggregate_top_patch_scores(
+            test_patch_scores,
+            top_fraction=0.05,
+        ),
+    }
 
     print(f"Dataset: {manifest.dataset}")
     print(f"Category: {manifest.category}")
     print(f"Fitting images: {len(fitting_dataset)}")
     print(f"Validation images: {len(validation_dataset)}")
+    print(f"Test images: {len(test_dataset)}")
     print(f"Feature memory shape: {tuple(feature_memory.shape)}")
     print(
-        "Feature memory build time: "
-        f"{memory_seconds:.2f} seconds"
+        f"Feature memory build time: {memory_seconds:.2f} seconds"
     )
     print(
-        "Validation scoring time: "
-        f"{validation_scoring_seconds:.2f} seconds"
+        f"Validation scoring time: {validation_seconds:.2f} seconds"
     )
+    print(f"Test scoring time: {test_seconds:.2f} seconds")
     print()
-    print("Normal validation score distribution:")
-    print(f"Minimum: {validation_scores.min().item():.6f}")
-    print(f"Mean: {validation_scores.mean().item():.6f}")
-    print(f"Median: {validation_scores.median().item():.6f}")
     print(
-        "Standard deviation: "
-        f"{validation_scores.std(unbiased=False).item():.6f}"
-    )
-    print(
-        "95th percentile: "
-        f"{torch.quantile(validation_scores, 0.95).item():.6f}"
-    )
-    print(f"Maximum: {validation_scores.max().item():.6f}")
-    print()
-    print("Five highest normal validation scores:")
-
-    for score, index in zip(
-        sorted_validation_scores[:5],
-        sorted_validation_indices[:5],
-        strict=True,
-    ):
-        print(
-            f"- {score.item():.6f}: "
-            f"{validation_scored_paths[index.item()]}"
-        )
-
-    print()
-    print(f"Test images: {len(test_dataset)}")
-    print(f"Test scoring time: {test_scoring_seconds:.2f} seconds")
-    print()
-    print("Test score distribution by group:")
-
-    groups = sorted(
-        {image.group for image in labeled_test_images}
+        "Note: This is an exploratory comparison because the test "
+        "partition has already been inspected during baseline analysis."
     )
 
-    for group in groups:
-        group_indices = [
-            index
-            for index, image in enumerate(labeled_test_images)
-            if image.group == group
-        ]
-
-        group_scores = test_scores[group_indices]
-
-        print(
-            f"- {group}: "
-            f"count={group_scores.numel()}, "
-            f"min={group_scores.min().item():.6f}, "
-            f"mean={group_scores.mean().item():.6f}, "
-            f"max={group_scores.max().item():.6f}"
+    for name, validation_scores in validation_score_rules.items():
+        print_score_rule_results(
+            name,
+            validation_scores,
+            test_score_rules[name],
+            test_scored_paths,
+            labeled_test_images,
+            expected_test_labels,
         )
-
-    print()
-    print("Threshold and classification results:")
-    print(f"Threshold: {threshold:.6f}")
-    print(f"True positives: {metrics.true_positives}")
-    print(f"True negatives: {metrics.true_negatives}")
-    print(f"False positives: {metrics.false_positives}")
-    print(f"False negatives: {metrics.false_negatives}")
-    print(f"Accuracy: {metrics.accuracy:.4f}")
-    print(f"Precision: {metrics.precision:.4f}")
-    print(f"Recall: {metrics.recall:.4f}")
-    print(f"F1 score: {metrics.f1_score:.4f}")
-    print()
-    print("Detection rate by test group:")
-
-    for group in groups:
-        group_indices = [
-            index
-            for index, image in enumerate(labeled_test_images)
-            if image.group == group
-        ]
-
-        group_predictions = test_predictions[group_indices]
-        predicted_anomalies = int(
-            group_predictions.sum().item()
-        )
-
-        print(
-            f"- {group}: "
-            f"predicted anomalous={predicted_anomalies}/"
-            f"{len(group_indices)}, "
-            f"rate={predicted_anomalies / len(group_indices):.4f}"
-        )
-
-    false_negative_indices = [
-        index
-        for index, (
-            prediction,
-            expected_label,
-        ) in enumerate(
-            zip(
-                test_predictions,
-                expected_test_labels,
-                strict=True,
-            )
-        )
-        if not prediction.item() and expected_label.item()
-    ]
-
-    print()
-    print("False negatives:")
-
-    if not false_negative_indices:
-        print("- none")
-    else:
-        for index in false_negative_indices:
-            print(
-                f"- score={test_scores[index].item():.6f}, "
-                f"group={labeled_test_images[index].group}, "
-                f"path={test_scored_paths[index]}"
-            )
 
 
 if __name__ == "__main__":
