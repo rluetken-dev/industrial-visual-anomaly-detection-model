@@ -2,53 +2,48 @@
 
 ## Document Purpose
 
-This document records the current implementation status, verified technical findings, active development direction, open decisions, and immediate next steps for the Industrial Visual Anomaly Detection project.
+This living document records the verified implementation status, experiment results, current decisions, open questions, and immediate next steps for the Industrial Visual Anomaly Detection project.
 
-It is a living status document. It distinguishes between:
-
-- verified capabilities;
-- selected implementation decisions;
-- work currently in progress;
-- planned but not yet implemented functionality.
-
-The document must be updated whenever a relevant technical assumption, dataset decision, experiment result, or implementation milestone changes.
+It distinguishes between implemented and tested capabilities, exploratory findings, and planned work.
 
 ## Current Phase
 
-The project is currently in the dataset-preparation and anomaly-baseline preparation phase.
+The project has completed its first end-to-end anomaly-detection model-development cycle and is now in the model-artifact and inference-integration phase.
 
-Technical feasibility has already been demonstrated for:
+The implemented pipeline can:
 
-- loading a pretrained ResNet18 backbone;
-- extracting intermediate feature maps;
-- combining multi-scale feature maps into patch embeddings;
-- running the feature extractor on CPU;
-- exporting the feature extractor to ONNX;
-- validating the exported ONNX model;
-- reproducing PyTorch outputs with ONNX Runtime;
-- loading and inspecting real MVTec AD images;
-- validating all three acquired MVTec datasets;
-- creating a deterministic fitting and validation split for the first category.
+- validate all three locally acquired MVTec datasets;
+- create deterministic fitting and validation partitions;
+- preprocess images at configurable square resolutions;
+- extract frozen multi-scale ResNet18 features;
+- create local patch embeddings and a normal feature memory;
+- compute exact chunked nearest-neighbor distances;
+- produce patch-level and image-level anomaly scores;
+- derive a threshold only from normal validation images;
+- evaluate complete MVTec AD category test partitions;
+- generate anomaly heatmaps;
+- export and reload a fitted model artifact;
+- classify an individual image through a command-line interface.
 
-No trained or fitted anomaly-detection model has been completed yet. No anomaly scores, thresholds, evaluation metrics, heatmaps, or production inference services have been implemented.
+The current reference artifact is the MVTec AD Capsule model using a 320 × 320 input, the complete feature memory, and top-one-percent patch-score aggregation.
+
+No .NET backend or graphical client has been implemented yet. Pixel-level localization metrics and public artifact distribution remain future work.
 
 ## Project Vision
 
 The project is intended to become an industrial visual anomaly-detection system that:
 
-- learns the visual appearance of normal products from defect-free images;
-- detects images that deviate from the learned normal appearance;
-- localizes suspicious image regions through anomaly maps;
-- evaluates detection and localization quality against published benchmark data;
-- exports the required neural feature extractor through ONNX;
+- learns normal product appearance from defect-free images;
+- detects deviations from the learned normal appearance;
+- localizes suspicious regions through anomaly maps;
+- evaluates detection and localization quality reproducibly;
+- packages fitted model state as versioned artifacts;
 - exposes inference through a client-neutral .NET backend;
-- can later support both desktop and web clients.
+- can later support desktop and web clients.
 
-The first implementation focuses on unsupervised anomaly detection. It must determine whether an image is normal or anomalous and indicate suspicious regions. It is not initially required to classify the precise defect type.
+The current implementation performs unsupervised anomaly detection. It decides whether an image is normal or anomalous and produces a patch-level anomaly map. It does not classify the precise defect type.
 
 ## Verified Development Environment
-
-The following local environment has been verified:
 
 | Component | Verified value |
 | --- | --- |
@@ -65,175 +60,88 @@ The following local environment has been verified:
 | .NET SDK | 10.0.302 |
 | Git | 2.55.0.windows.3 |
 
-The Python version is recorded in `.python-version`. Direct Python dependencies are pinned in `requirements.txt`.
-
-The Python source files currently compile successfully with `compileall`, and the installed Python packages pass `pip check`.
+The Python version is recorded in `.python-version`, and direct dependencies are pinned in `requirements.txt`. Source compilation and `pip check` succeed. The automated test suite currently contains 54 passing tests.
 
 ## Hardware Assessment
 
-The development system uses an AMD Radeon 860M integrated GPU. The current PyTorch installation is CPU-only, and CUDA acceleration is unavailable.
+The development system uses an AMD Radeon 860M integrated GPU. The installed PyTorch build is CPU-only, and CUDA acceleration is unavailable.
 
-This is acceptable for the initial project because:
+CPU compatibility is therefore a requirement. ResNet18, chunked distance calculation, configurable resolution, and optional feature-memory sampling make local development practical. Hardware acceleration may be evaluated later without becoming necessary for reproducing the baseline.
 
-- the selected ResNet18 backbone is comparatively lightweight;
-- the first category contains a manageable number of images;
-- feature extraction can be completed on CPU;
-- initial experiments prioritize correctness and reproducibility over training speed;
-- ONNX inference is intended to remain CPU-compatible.
+## Implemented Model Pipeline
 
-The project must therefore avoid assuming CUDA availability. Optional hardware acceleration may be investigated later without becoming a requirement for local setup or inference.
-
-## Verified PyTorch Capability
-
-A pretrained ResNet18 model using the default TorchVision weights has been loaded and executed successfully.
-
-For an artificial input tensor with shape:
+The current PatchCore-inspired pipeline is:
 
 ```text
-(1, 3, 224, 224)
+normal fitting images
+→ deterministic preprocessing
+→ frozen pretrained ResNet18
+→ layer2 and layer3 feature maps
+→ multi-scale patch embeddings
+→ normal feature memory
+→ exact chunked nearest-neighbor search
+→ patch anomaly scores
+→ configurable image-score aggregation
+→ validation-derived threshold
+→ normal/anomalous decision
 ```
 
-the complete classification model produced an output with shape:
+These steps are implemented explicitly instead of being hidden behind a large anomaly-detection framework. This keeps the method understandable, testable, and suitable for later integration.
 
-```text
-(1, 1000)
-```
+## Verified Feature Extraction
 
-This confirms that the local PyTorch and TorchVision installation can load and execute pretrained model weights.
+For a 224 × 224 input:
 
-## Verified CPU Performance
-
-The complete pretrained ResNet18 model was benchmarked on an artificial input tensor after three warm-up executions. Twenty measured executions produced an observed average inference time of approximately 12–13 milliseconds on the current development system.
-
-This measurement is only a technical reference. It does not represent end-to-end anomaly-detection performance because it excludes:
-
-- image loading;
-- production preprocessing;
-- feature-memory construction;
-- nearest-neighbor comparison;
-- anomaly-map generation;
-- threshold application;
-- result serialization;
-- client or API overhead.
-
-No production latency claim is made at this stage.
-
-## Verified Feature Extraction Strategy
-
-The technical spike extracts intermediate ResNet18 features from `layer2` and `layer3`.
-
-For an input tensor with shape `(1, 3, 224, 224)`, the verified feature shapes are:
-
-| Feature output | Shape |
+| Output | Shape |
 | --- | --- |
 | ResNet18 `layer2` | `(1, 128, 28, 28)` |
 | ResNet18 `layer3` | `(1, 256, 14, 14)` |
+| Combined feature map | `(1, 384, 28, 28)` |
+| Patch embeddings | `(784, 384)` |
 
-The `layer3` feature map is resized to the spatial dimensions of `layer2`. Both maps are concatenated along the channel dimension, producing:
+For a 320 × 320 input:
 
-```text
-(1, 384, 28, 28)
-```
+| Output | Shape |
+| --- | --- |
+| ResNet18 `layer2` | `(1, 128, 40, 40)` |
+| ResNet18 `layer3` | `(1, 256, 20, 20)` |
+| Patch embeddings | `(1600, 384)` |
 
-The combined feature map is rearranged into one embedding per spatial position:
+The backbone remains in evaluation mode, and none of its parameters require gradients. The current baseline uses pretrained representations without fine-tuning.
 
-```text
-(784, 384)
-```
+## Verified ONNX Feasibility
 
-This means that one 224 × 224 input image currently produces 784 local patch embeddings, each containing 384 feature values.
+The ResNet18 feature extractor was exported successfully to ONNX and passed the ONNX checker. ONNX Runtime reproduced PyTorch output with maximum absolute differences of `0.00000241` for `layer2` and `0.00000161` for `layer3`.
 
-This behavior is suitable for a PatchCore-style anomaly-detection baseline, but the final baseline implementation has not yet been completed.
+The provisional ONNX files prove cross-runtime feasibility but are not a complete anomaly-detection artifact. Deployment also requires preprocessing, feature memory, aggregation settings, and a threshold.
 
-## Verified ONNX Export
+## Preprocessing Decisions
 
-The custom ResNet18 feature extractor has been exported successfully to ONNX with a fixed input shape of:
-
-```text
-(1, 3, 224, 224)
-```
-
-The provisional files produced by the export are:
-
-```text
-resnet18_feature_extractor.onnx
-resnet18_feature_extractor.onnx.data
-```
-
-The exported model passed the official ONNX model checker.
-
-The generated files are ignored by Git because they are development artifacts. They must not be treated as released model artifacts until preprocessing, metadata, licensing, versioning, evaluation, and packaging have been finalized.
-
-## Verified PyTorch and ONNX Consistency
-
-The same artificial image tensor has been processed by both the PyTorch feature extractor and ONNX Runtime using the CPU execution provider.
-
-The observed maximum absolute differences were:
-
-| Output | Maximum difference |
-| --- | ---: |
-| `layer2` | 0.00000241 |
-| `layer3` | 0.00000161 |
-
-These differences are sufficiently small for the technical proof of concept. They show that the exported ONNX model reproduces the PyTorch feature outputs with effectively equivalent numerical results for the verified input.
-
-## Verified Preprocessing
-
-The preprocessing strategy for the initial MVTec AD Bottle baseline has been verified technically and visually on normal and anomalous images.
-
-All 355 PNG files associated with the Bottle category use a square resolution of 900 × 900 pixels. The selected preprocessing pipeline therefore performs:
-
-- conversion to RGB;
-- direct resizing from 900 × 900 to 224 × 224 pixels;
-- bilinear interpolation with antialiasing;
-- conversion to a PyTorch tensor;
-- normalization with the ImageNet mean and standard deviation expected by the pretrained ResNet18 weights.
-
-The selected pipeline is:
+The selected preprocessing pipeline is:
 
 ```text
 RGB image
-→ direct resize to 224 × 224
+→ direct resize to configured square input
 → tensor conversion
 → ImageNet normalization
 ```
 
-The default TorchVision preprocessing, which first resizes the image to 256 × 256 pixels and then applies a 224 × 224 center crop, was evaluated visually as an alternative.
+Direct resizing was selected over TorchVision's default resize-plus-center-crop pipeline because center cropping removed part of the Bottle boundary. Bottle was evaluated at 224 × 224. The stronger Capsule baseline uses 320 × 320. Future non-square categories require a separate padding or aspect-ratio decision.
 
-The comparison showed that direct resizing preserves the complete bottle, including its outer rim and surrounding background. Center cropping removes part of this outer image area. Because anomalies may occur near the object boundary, direct resizing was selected for the first Bottle baseline.
+## Dataset Storage and Validation
 
-No aspect-ratio distortion is introduced for the Bottle category because all inspected source images are square.
-
-The inspection script can save the original image, the TorchVision-resized image, the center-cropped image, and the directly resized 224 × 224 image for comparison. Generated inspection images are stored below outputs/ and are excluded from Git.
-
-## Dataset Storage
-
-Datasets are stored outside the Git repository under:
+Datasets are stored outside Git under:
 
 ```text
 C:/dev/data/industrial-visual-anomaly-detection/
 ```
 
-The local storage is separated into:
-
-```text
-archives/
-raw/
-```
-
-Dataset archives, extracted images, masks, generated validation reports, model artifacts, and other large derived files must not be committed to the public source repository.
-
-Only source code, configuration, deterministic split manifests, documentation, and small explicitly permitted examples may be versioned.
-
-## Dataset Acquisition and Validation Status
-
-Three datasets have been downloaded, archived locally, extracted, inspected, and validated.
+Dataset archives, extracted images, validation reports, generated model artifacts, and experiment outputs are excluded from the repository.
 
 ### MVTec AD
 
 | Property | Verified value |
 | --- | --- |
-| Archive | `mvtec_anomaly_detection.tar.xz` |
 | SHA-256 | `CF4313B13603BEC67ABB49CA959488F7EEDCE2A9F7795EC54446C649AC98CD3D` |
 | Categories | 15 |
 | Normal training images | 3,629 |
@@ -242,33 +150,27 @@ Three datasets have been downloaded, archived locally, extracted, inspected, and
 | Ground-truth masks | 1,258 |
 | Total PNG files | 6,612 |
 
-All expected categories and directory structures are present. All PNG files are readable. Every anomalous test image has a corresponding mask, and all 1,258 image-mask pairs passed validation.
-
 ### MVTec LOCO AD
 
 | Property | Verified value |
 | --- | --- |
-| Archive | `mvtec_loco_anomaly_detection.tar.xz` |
 | SHA-256 | `9E7C84DBA550FD2E59D8E9E231C929C45BA737B6B6A6D3814100F54D63AAE687` |
 | Categories | 5 |
 | Normal training images | 1,778 |
 | Normal validation images | 305 |
 | Normal test images | 575 |
-| Logical anomaly test images | 561 |
-| Structural anomaly test images | 432 |
+| Logical anomaly images | 561 |
+| Structural anomaly images | 432 |
 | Mask groups | 993 |
 | Mask files | 1,246 |
 | Total PNG files | 4,897 |
 
-All PNG files are readable. All 993 anomalous test images have matching non-empty mask groups, and all 1,246 mask files passed validation. Positive mask values are validated against the category-specific definitions in `defects_config.json` rather than being treated as universally binary.
-
-The local extracted image count differs from a published aggregate count by seven images. The difference is isolated to `splicing_connectors`, whose local training and validation folders contain six and one additional images respectively. The local archive checksum is recorded, and no files have been removed to force agreement with an external count.
+MVTec LOCO AD mask values are validated against each category's `defects_config.json`.
 
 ### MVTec AD 2
 
 | Property | Verified value |
 | --- | --- |
-| Archive | `mvtec_ad_2.tar.gz` |
 | SHA-256 | `C0DED99EF32BFC8E352D52BEB44515E5B292B8598CB963AADFA91CA0763505E4` |
 | Categories | 8 |
 | Normal training images | 2,528 |
@@ -280,289 +182,256 @@ The local extracted image count differs from a published aggregate count by seve
 | Private mixed test images | 2,045 |
 | Total PNG files | 8,709 |
 
-All PNG files are readable. All 705 public anomalous images have matching masks, and the public image-mask pairs passed content validation.
+All implemented structure, readability, inventory, mask-name, and mask-content checks pass. Private MVTec AD 2 ground truth is not stored locally.
 
-Ground truth for the private test partitions is not included locally. Evaluation of those partitions would require the official external evaluation mechanism and is not part of the initial baseline.
+## Machine-Readable Validation Reports
 
-## Machine-Readable Dataset Reports
+Each dataset validator supports an optional `--report` argument. Schema-versioned JSON reports are written only after every validation stage succeeds. They include dataset identity, local root, inventories, image properties, mask counts, and validation-stage results. Generated reports are excluded from Git.
 
-All three dataset validators now support an optional `--report` argument and can write schema-versioned JSON reports after successful validation.
+## Deterministic Category Splits
 
-The generated reports contain:
+The category-configurable split generator uses seed `42`. Manifests use relative paths and are validated for counts, duplicates, overlap, and unsafe traversal.
 
-- dataset identifier and resolved local root;
-- discovered categories;
-- per-category and aggregate inventories;
-- image dimensions and modes;
-- validated mask, mask-group, or image-mask pair counts;
-- individual validation-stage results.
+| Category | Fitting | Normal validation | Manifest |
+| --- | ---: | ---: | --- |
+| Bottle | 167 | 42 | `configs/splits/mvtec-ad-bottle-seed-42.json` |
+| Capsule | 175 | 44 | `configs/splits/mvtec-ad-capsule-seed-42.json` |
 
-The reports currently use schema version `1`. They are written only after every implemented validation stage passes. Failed validation terminates without producing a misleading successful report.
+Official test images are excluded from fitting and threshold selection. Defect folders are used only for grouped evaluation.
 
-Generated files are stored under `validation-reports/`, contain machine-specific local paths, and are excluded from Git.
+## Feature Memory and Scoring
 
-## Selected Initial Dataset and Category
+The complete feature memory concatenates patch embeddings from every normal fitting image. Exact nearest-neighbor distances are computed in chunks to restrict temporary memory use.
 
-The first anomaly-detection baseline will use:
+Supported image-level aggregation methods are:
 
-| Setting | Selected value |
+- maximum patch score;
+- mean of the highest configurable patch-score fraction.
+
+Top-one-percent mean is the selected reference aggregation. The threshold is the maximum score among normal validation images, and only scores strictly above it are anomalous.
+
+## Bottle Baseline Results
+
+At 224 × 224 with complete feature memory:
+
+| Aggregation | Accuracy | Precision | Recall | F1 | FP | FN |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Maximum | 0.9398 | 1.0000 | 0.9206 | 0.9587 | 0 | 5 |
+| Top 1% mean | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0 | 0 |
+| Top 5% mean | 0.9759 | 0.9692 | 1.0000 | 0.9844 | 2 | 0 |
+
+These are exploratory results because the official test set was inspected during baseline analysis. They must not be presented as an untouched blind benchmark.
+
+## Capsule Generalization Results
+
+Capsule was used to test pipeline generalization beyond Bottle. Its test partition contains 23 normal and 109 anomalous images.
+
+The selected 320 × 320, complete-memory, top-one-percent configuration produced:
+
+| Metric | Result |
+| --- | ---: |
+| True positives | 104 |
+| True negatives | 21 |
+| False positives | 2 |
+| False negatives | 5 |
+| Accuracy | 0.9470 |
+| Precision | 0.9811 |
+| Recall | 0.9541 |
+| F1 score | 0.9674 |
+
+This configuration creates 280,000 feature-memory entries with dimension 384 and occupies approximately 410.16 MiB as float32.
+
+## Feature-Memory Sampling Experiment
+
+Deterministic random sampling with seed `42` was evaluated for Capsule at 320 × 320:
+
+| Memory | Entries | Validation + test scoring | Recall | F1 | FN |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 100% | 280,000 | 225.06 s | 0.9541 | 0.9674 | 5 |
+| 75% | 210,000 | 184.33 s | 0.8991 | 0.9423 | 11 |
+| 50% | 140,000 | 120.36 s | 0.8624 | 0.9216 | 15 |
+| 25% | 70,000 | 64.15 s | 0.6330 | 0.7753 | 40 |
+
+Sampling accelerates the search but degrades recall too strongly. Complete memory remains the quality baseline. Sampling remains a reproducible experimental option; a coverage-preserving coreset may be investigated later.
+
+## Heatmap Visualization
+
+Patch scores can be resized, colorized, and blended with source images. Both per-image normalization and fixed threshold-based normalization are supported. Threshold-based normalization is preferred for comparisons because it uses a consistent reference.
+
+Heatmaps are explanatory outputs. Quantitative pixel-level localization evaluation remains open.
+
+## Exported Model Artifact
+
+Reusable artifacts are implemented as:
+
+```text
+model-artifact/
+  metadata.json
+  feature_memory.pt
+```
+
+Metadata records schema version, dataset, category, backbone, input and patch-grid sizes, embedding dimension, aggregation configuration, threshold, sampling configuration, and feature-memory entry count.
+
+The writer validates tensor shape and contents. The loader reconstructs typed metadata and loads the tensor on CPU with `weights_only=True`. Round-trip persistence and invalid configurations are covered by tests.
+
+## Reference Capsule Artifact
+
+| Property | Value |
 | --- | --- |
-| Dataset | MVTec AD |
-| Category | `bottle` |
-| Training source | `bottle/train/good` |
-| Official evaluation source | complete `bottle/test` partition |
-| Localization ground truth | `bottle/ground_truth` |
+| Dataset | `mvtec-ad` |
+| Category | `capsule` |
+| Backbone | `resnet18` |
+| Input size | `320 × 320` |
+| Patch grid | `40 × 40` |
+| Embedding dimension | 384 |
+| Feature-memory entries | 280,000 |
+| Feature-memory size | 410.16 MiB |
+| Aggregation | `top_fraction_mean` |
+| Top fraction | 0.01 |
+| Memory fraction | 1.0 |
+| Threshold | 2.501821517944336 |
 
-The bottle category was selected because:
+The artifact is stored locally below `outputs/model-artifacts/` and excluded from Git. It has not been published as a release asset.
 
-- it has a manageable dataset size;
-- its normal images have a consistent background, position, and illumination;
-- the defects are visually recognizable;
-- pixel-level masks are available for anomalous test images;
-- it provides a clear first case for understanding the complete pipeline.
+## Single-Image Inference
 
-The model will initially learn only from normal bottle images. The official defect folder names are retained for grouped evaluation and analysis, not used as supervised training labels.
+The loaded artifact classifies an image without fitting or validation data. Inference recreates the configured input size from artifact metadata and applies the versioned preprocessing implementation from the Python package. It then extracts embeddings, performs exact scoring, applies the saved aggregation rule, and compares the score with the stored threshold.
 
-## Deterministic Bottle Split
+The prediction contains the image path, anomaly score, threshold, Boolean decision, and patch-score map. `scripts/predict_image.py` exposes the flow through a CLI.
 
-The 209 normal images in `bottle/train/good` have been divided deterministically into:
+| Image | Score | Threshold | Decision | Prediction time |
+| --- | ---: | ---: | --- | ---: |
+| Capsule `test/good/000.png` | 1.848755 | 2.501822 | normal | 1.44 s |
+| Capsule `test/poke/000.png` | 4.992109 | 2.501822 | anomalous | 1.46 s |
 
-| Partition | Image count | Purpose |
-| --- | ---: | --- |
-| Fitting | 167 | Build the normal feature memory |
-| Normal validation | 42 | Select and verify the anomaly threshold without using the official test set |
+Artifact loading took approximately 0.20 seconds and extractor creation approximately 0.20 seconds. A persistent service could initialize both once.
 
-The split uses random seed `42` and has no overlap. All 209 source images are represented exactly once.
+## Automated Tests and Quality Checks
 
-The resulting manifest is versioned at:
+The 54 passing tests cover manifests, dataset discovery, preprocessing, patch embeddings, feature memory, sampling, nearest-neighbor distances, scoring, aggregation, metrics, visualization, and artifact persistence.
 
-```text
-configs/splits/mvtec-ad-bottle-seed-42.json
-```
-
-The official `bottle/test` partition remains untouched for final evaluation.
-
-## Current Model Strategy
-
-The selected first baseline is a PatchCore-style anomaly-detection pipeline built around a pretrained ResNet18 feature extractor.
-
-The planned sequence is:
+The following checks pass:
 
 ```text
-normal fitting images
-→ deterministic preprocessing
-→ pretrained ResNet18 feature extraction
-→ multi-scale patch embeddings
-→ normal feature memory
-→ nearest-neighbor comparison for a new image
-→ patch-level anomaly scores
-→ image-level anomaly score
-→ anomaly map
-→ threshold-based normal/anomalous decision
+unittest discovery
+compileall
+pip check
+git diff --check
 ```
 
-The pretrained backbone is not initially fine-tuned. The first objective is to measure how well pretrained visual features represent normal industrial appearance.
-
-The implementation should remain understandable and explicit. Core steps such as preprocessing, embedding creation, feature-memory construction, scoring, threshold selection, and evaluation should not be hidden behind a large external anomaly-detection framework.
-
-## Current Evaluation Strategy
-
-The first baseline will be evaluated on the complete official MVTec AD bottle test partition.
-
-The intended evaluation includes:
-
-- image-level anomaly scores;
-- a threshold-derived normal/anomalous decision;
-- image-level classification metrics;
-- pixel-level anomaly maps;
-- pixel-level localization metrics using the supplied masks;
-- grouped results by official bottle defect folder;
-- representative visual result examples.
-
-The threshold must be derived from the 42-image normal validation partition and not from the official test labels.
-
-The exact threshold method and final metric set remain open decisions. Candidate metrics include image-level AUROC, pixel-level AUROC, average precision, and threshold-dependent precision, recall, and F1 score.
-
-No evaluation results exist yet.
-
-## Current Architecture Direction
-
-The intended long-term architecture separates model development from application delivery:
-
-```text
-Python model development
-→ evaluated and versioned artifacts
-→ ONNX feature extractor and model metadata
-→ client-neutral .NET inference backend
-→ desktop client and/or web client
-```
-
-Python owns:
-
-- dataset validation;
-- preprocessing experiments;
-- fitting the anomaly-detection baseline;
-- evaluation;
-- threshold selection;
-- artifact export.
-
-The future .NET backend is intended to own:
-
-- artifact loading;
-- request validation;
-- production preprocessing consistent with Python;
-- ONNX inference;
-- anomaly scoring and threshold application;
-- stable result contracts;
-- access for multiple client types.
-
-No .NET backend, desktop client, or web client has been implemented yet.
-
-## Current Repository Contents
-
-The repository currently contains:
+## Current Repository Structure
 
 ```text
 configs/
   splits/
-    mvtec-ad-bottle-seed-42.json
 docs/
-  ArchitectureOverview.md
-  DatasetDocumentation.md
-  DevelopmentStatus.md
-  ModelDevelopmentStrategy.md
-  ProjectSpecification.md
 scripts/
   create_mvtec_ad_split.py
+  evaluate_mvtec_ad_category.py
+  export_mvtec_ad_model.py
   inspect_preprocessing.py
+  predict_image.py
   validate_mvtec_ad.py
   validate_mvtec_ad_2.py
   validate_mvtec_loco_ad.py
-.gitignore
-.python-version
-environment_check.py
-README.md
-requirements.txt
+src/
+  industrial_visual_anomaly_detection/
+    artifacts/
+    datasets/
+    models/
+    evaluation.py
+    inference.py
+    preprocessing.py
+    visualization.py
+tests/
 ```
 
-The scripts currently provide:
+Generated datasets, reports, ONNX files, model artifacts, caches, and outputs are excluded by `.gitignore`.
 
-- technical feature-extractor and ONNX checks;
-- MVTec AD validation with optional JSON reporting;
-- MVTec LOCO AD validation with category-specific mask-value checks and optional JSON reporting;
-- MVTec AD 2 validation with optional JSON reporting;
-- deterministic MVTec AD training splits;
-- preprocessing inspection for individual images.
-
-The local virtual environment, editor settings, datasets, generated ONNX files, caches, reports, and other generated artifacts are excluded by `.gitignore`.
-
-## Intended Model Artifact Contract
-
-The final artifact contract has not yet been implemented. It is expected to contain more than a standalone ONNX file.
-
-A future versioned artifact package will likely include:
+## Architecture Direction
 
 ```text
-feature-extractor.onnx
-feature-memory artifact
-model-metadata.json
-preprocessing.json
-thresholds.json
-evaluation-summary.json
+Python model development and evaluation
+→ evaluated, versioned model artifacts
+→ client-neutral .NET inference backend
+→ desktop and web clients
 ```
 
-The metadata should identify at least:
+Python currently owns validation, fitting, evaluation, visualization, artifact export, and reference inference. The future .NET backend is expected to own persistent artifact loading, preprocessing parity, ONNX execution, scoring, stable result contracts, and multi-client access.
 
-- model and artifact versions;
-- pretrained backbone and weight version;
-- input dimensions;
-- preprocessing configuration;
-- selected feature layers;
-- embedding dimensions;
-- dataset and category;
-- deterministic split manifest;
-- feature-memory configuration;
-- threshold method and value;
-- evaluation results;
-- framework and dependency versions;
-- license and attribution information.
+The current artifact uses a PyTorch tensor and a PyTorch feature extractor. A framework-neutral .NET release contract has not yet been finalized.
+
+## Confirmed Reference Decisions
+
+- normal-only unsupervised fitting;
+- frozen pretrained ResNet18;
+- `layer2` and `layer3` feature fusion;
+- 384-dimensional embeddings;
+- direct square resizing and ImageNet normalization;
+- 320 × 320 Capsule input;
+- exact chunked nearest-neighbor search;
+- complete feature memory;
+- top-one-percent mean aggregation;
+- maximum normal-validation score as threshold;
+- local artifact storage outside Git.
 
 ## Open Decisions
 
-The following decisions remain open:
-
-- Should later non-square categories use aspect-ratio-preserving resizing, padding, or category-specific preprocessing?
-- Should the baseline use all fitting embeddings or a reduced coreset?
-- Which coreset selection method and sampling ratio should be used if reduction is enabled?
-- Which nearest-neighbor implementation should be used during Python development?
-- How should patch-level scores be converted into the final image-level score?
-- How should anomaly maps be resized and smoothed?
-- Which normal-validation threshold method should be selected?
-- Which evaluation metrics form the required MVP result set?
-- Which experiment-report format should become versioned?
-- Which parts of anomaly scoring should later run in ONNX, managed .NET, or a dedicated numerical library?
-- How should model and feature-memory artifacts be packaged for release?
-
-The initial dataset, category, backbone family, feature layers, input size, and deterministic split are no longer open decisions for the first baseline.
+- preprocessing for non-square categories;
+- smarter coverage-preserving coreset selection;
+- approximate nearest-neighbor implementation;
+- quantitative pixel-level metrics and map smoothing;
+- framework-neutral feature-memory storage;
+- packaging ONNX, metadata, and feature memory together;
+- artifact checksums and compatibility validation;
+- public release contents;
+- division of inference work between ONNX and .NET;
+- future threshold calibration.
 
 ## Deferred Work
 
-The following work is intentionally deferred until the first Python anomaly baseline has been fitted and evaluated:
-
-- a production .NET inference backend;
+- .NET inference backend;
 - desktop and web clients;
 - database persistence;
 - authentication and authorization;
 - deployment packaging;
-- GPU-specific optimization;
-- fine-tuning the pretrained backbone;
-- multi-category model management;
+- GPU optimization;
+- backbone fine-tuning;
+- multi-category artifact management;
 - defect-type classification;
-- evaluation through the private MVTec AD 2 benchmark service;
-- production monitoring and model-drift handling.
+- private MVTec AD 2 benchmark submission;
+- production monitoring and drift handling.
 
 ## Immediate Next Steps
 
-The next implementation steps are:
-
-1. Refactor the technical feature extractor from `environment_check.py` into reusable Python modules.
-2. Implement deterministic loading of the Bottle fitting and validation partitions from the split manifest.
-3. Add automated tests for dataset report generation and schema contents.
-4. Extract patch embeddings for the 167 fitting images.
-5. Build the first normal feature memory.
-6. Measure feature-memory size and exact nearest-neighbor runtime.
-7. Implement nearest-neighbor anomaly scoring.
-8. Score the 42 normal validation images and define the first threshold method.
-9. Evaluate the baseline on the official Bottle test partition.
-10. Generate image-level metrics, anomaly maps, and representative result visualizations.
-11. Record the experiment configuration and results reproducibly.
-
-The machine-readable dataset-report and Bottle preprocessing-inspection milestones are complete. Refactoring the technical feature extractor into reusable Python modules is the next active implementation step.
+1. Update architecture, strategy, specification, and README documents consistently.
+2. Add focused tests for single-image inference and artifact compatibility.
+3. Decide whether the CLI should save prediction reports and heatmaps.
+4. Define a versioned, framework-neutral release layout for later .NET consumption.
+5. Export and verify the neural extractor for the selected 320 × 320 configuration.
+6. Evaluate pixel-level localization against Capsule masks.
+7. Add machine-readable experiment summaries.
+8. Design the future backend inference contract.
 
 ## Last Verified Status
 
 As of 2026-08-13:
 
-- the Python 3.12 virtual environment is operational;
-- pinned project dependencies are recorded;
-- the source files compile successfully;
-- the pretrained ResNet18 backbone runs on CPU;
-- intermediate multi-scale features and patch embeddings can be extracted;
-- the provisional feature extractor exports successfully to ONNX;
-- ONNX Runtime reproduces the PyTorch feature outputs with very small numerical differences;
-- direct 224 × 224 Bottle preprocessing has been verified technically and visually on normal and anomalous images;
-- direct resizing was selected over the default center-crop pipeline to preserve the complete bottle boundary;
-- MVTec AD, MVTec LOCO AD, and MVTec AD 2 are downloaded and stored outside the repository;
-- the archive checksums are recorded;
-- all three dataset validators can generate schema-versioned JSON reports after successful validation;
-- MVTec LOCO AD mask values are validated against each category's `defects_config.json`;
-- MVTec AD bottle is selected as the first implementation category;
-- the normal bottle training images have been split deterministically into 167 fitting and 42 validation images;
-- the split manifest is versioned and contains no overlap;
-- no anomaly feature memory has been fitted yet;
-- no anomaly threshold has been selected;
-- no official bottle test evaluation has been performed;
-- no production model artifact has been released;
-- no .NET backend or user-facing client has been implemented.
+- all three acquired MVTec datasets are validated;
+- machine-readable dataset reports are supported;
+- Bottle and Capsule deterministic manifests are versioned;
+- the reusable Python anomaly pipeline is implemented;
+- configurable 224 × 224 and 320 × 320 preprocessing is verified;
+- exact patch-level anomaly scoring and configurable aggregation are implemented;
+- Bottle and Capsule evaluations have been completed;
+- the selected Capsule baseline achieves 0.9541 recall and 0.9674 F1 in the explored evaluation;
+- random memory sampling was evaluated and rejected as the quality baseline;
+- anomaly heatmaps are implemented;
+- artifacts can be exported and loaded;
+- a 410.16 MiB Capsule artifact was verified;
+- normal and anomalous Capsule images were classified correctly through the CLI;
+- observed single-image prediction time is approximately 1.45 seconds on CPU;
+- 54 automated tests pass;
+- no .NET backend, graphical client, or public artifact release exists yet.
 
-The project has therefore completed environment verification, technical feature-extraction feasibility, dataset acquisition, dataset validation, machine-readable validation reporting, initial category selection, deterministic split preparation, and visual verification of the selected Bottle preprocessing. The next active milestone is extracting the provisional feature extractor into reusable anomaly-detection modules.
+The next active milestone is documentation consolidation followed by definition of a stable cross-runtime inference contract.

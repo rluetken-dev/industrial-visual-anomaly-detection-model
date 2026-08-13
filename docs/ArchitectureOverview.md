@@ -2,75 +2,67 @@
 
 ## Purpose
 
-This document describes the current and intended architecture of the Industrial Visual Anomaly Detection system.
+This document describes the implemented and intended architecture of the Industrial Visual Anomaly Detection system.
 
 The architecture separates:
 
-- local dataset storage and validation;
-- Python-based model development and evaluation;
+- external dataset storage and validation;
+- Python model development, evaluation, export, and reference inference;
 - versioned model artifacts;
-- a future .NET inference backend;
+- a future client-neutral .NET inference backend;
 - future web and desktop clients.
 
-The project is currently in the dataset-preparation and anomaly-baseline preparation phase. Only components explicitly identified as verified or implemented currently exist. Backend and client components describe the intended target architecture and have not yet been created.
-
-This is a living architecture document. It must be updated whenever technical evidence changes the selected model, preprocessing contract, artifact contract, repository boundaries, runtime responsibilities, or deployment strategy.
+The Python reference pipeline is now implemented end to end. It can fit a normal feature memory, select a validation threshold, evaluate MVTec AD categories, export and load model artifacts, and classify individual images. The .NET backend and client applications remain target architecture rather than implemented components.
 
 ## Architecture Status
 
-The document uses three status categories:
+This document uses three status categories:
 
-- **Verified** – demonstrated successfully through executable code or dataset validation;
-- **Current direction** – selected for the first baseline or preferred target design, but not yet implemented completely;
-- **Open** – requires further implementation, evaluation, or interoperability testing.
+- **Implemented and verified** – demonstrated through executable code, automated tests, or recorded experiments;
+- **Selected direction** – established as the current target but not yet complete across runtimes;
+- **Open** – requires further design, implementation, or evaluation.
 
-### Verified
+### Implemented and Verified
 
-- Python 3.12 and CPU-based PyTorch/TorchVision execution are operational.
-- Pretrained ResNet18 weights can be loaded and executed locally.
-- Intermediate `layer2` and `layer3` feature maps can be extracted.
-- Multi-scale feature maps can be combined into local patch embeddings.
-- A feature-extractor wrapper can be exported to ONNX.
-- The exported ONNX model passes structural validation.
-- ONNX Runtime reproduces the PyTorch feature outputs with very small numerical differences.
-- Local CPU performance is sufficient for continued proof-of-concept development.
-- MVTec AD, MVTec LOCO AD, and MVTec AD 2 have been downloaded, extracted, inspected, and validated.
-- Direct 224 × 224 Bottle preprocessing has been verified technically and visually on normal and anomalous images.
-- Direct resizing was selected over the default center-crop pipeline to preserve the complete bottle boundary.
-- MVTec AD `bottle` has been selected as the first implementation category.
-- The 209 normal bottle training images have been split deterministically into 167 fitting and 42 normal validation images using seed `42`.
-- The split manifest is versioned and contains no overlap.
+- Python 3.12 CPU-based model development environment;
+- validation of MVTec AD, MVTec LOCO AD, and MVTec AD 2;
+- optional schema-versioned JSON validation reports;
+- deterministic category-specific fitting and validation manifests;
+- configurable square preprocessing with ImageNet normalization;
+- frozen pretrained ResNet18 feature extraction;
+- fusion of `layer2` and `layer3` feature maps;
+- local patch-embedding creation;
+- complete normal feature-memory construction;
+- exact chunked nearest-neighbor scoring;
+- maximum and top-fraction image-score aggregation;
+- threshold selection from normal validation images;
+- grouped image-level evaluation;
+- anomaly-map and heatmap generation;
+- deterministic random feature-memory sampling experiments;
+- model-artifact export and loading;
+- single-image inference and a prediction CLI;
+- provisional ONNX feature-extractor export and PyTorch/ONNX parity;
+- 54 passing automated tests.
 
-### Current Direction
+### Selected Direction
 
-- A PatchCore-style pipeline is the selected first anomaly-detection baseline.
-- The first baseline uses MVTec AD `bottle`.
-- The first feature extractor uses pretrained ResNet18 `layer2` and `layer3` outputs.
-- The initial input size is 224 × 224 pixels.
-- The pretrained backbone remains frozen for the first baseline.
-- Python owns model development, fitting, threshold selection, evaluation, and artifact export.
-- ONNX represents the neural feature extractor for later cross-runtime use.
-- .NET is intended to provide production-oriented inference and application services.
-- ASP.NET Core is intended to expose one client-neutral API.
-- Future React and WPF clients should consume the same backend contract.
-- Model, backend, web, and desktop concerns should remain independently deployable and separately versioned where practical.
+- the current reference model is MVTec AD Capsule at 320 × 320;
+- the reference configuration uses complete feature memory and top-one-percent mean aggregation;
+- Python remains the reference implementation for fitting, evaluation, and artifact production;
+- ONNX is the intended neural feature-extractor format for .NET interoperability;
+- a future ASP.NET Core backend should expose one client-neutral inference contract;
+- future React and WPF clients should consume the same backend;
+- model, backend, web, and desktop concerns should remain independently versioned where practical.
 
 ### Open
 
-- preprocessing strategies for later non-square categories;
-- final patch-embedding aggregation details;
-- whether the first Memory Bank uses all embeddings or a reduced coreset;
-- coreset selection algorithm and sampling ratio;
-- Python nearest-neighbor implementation;
-- anomaly-map resizing and smoothing;
-- image-level score aggregation;
-- normal-validation threshold method;
-- final MVP metric set;
-- Memory Bank serialization format;
-- division of scoring responsibilities between Python artifacts, ONNX, and .NET;
-- persistence model;
-- authentication requirements;
-- artifact distribution and release strategy.
+- framework-neutral feature-memory serialization;
+- complete preprocessing metadata in the artifact contract;
+- packaging ONNX, feature memory, metadata, checksums, and evaluation results;
+- approximate nearest-neighbor or coverage-preserving coreset optimization;
+- pixel-level metric selection and anomaly-map post-processing;
+- Python/.NET numerical parity for the complete pipeline;
+- backend persistence, authentication, deployment, and artifact distribution.
 
 ## Architectural Goals
 
@@ -78,40 +70,37 @@ The architecture should:
 
 - keep model research independent from presentation technology;
 - keep datasets and generated artifacts outside source control;
-- make dataset splits and experiments reproducible;
-- use the same preprocessing semantics during fitting and inference;
-- support anomaly detection and localization;
-- expose stable, client-neutral inspection results;
-- allow desktop and web clients to share one backend contract;
+- make splits, fitting, thresholds, and experiments reproducible;
+- preserve preprocessing and scoring semantics across runtimes;
+- support image-level detection and patch-level localization;
+- expose stable, client-neutral results;
 - keep CPU inference viable;
-- make model artifacts traceable and versioned;
+- make artifacts versioned, traceable, and compatible with their runtime;
 - prevent test data from influencing fitting or threshold selection;
 - support future model replacement without rewriting clients;
-- clearly distinguish experimental software from a validated industrial quality-control system.
+- distinguish an experimental benchmark system from a validated industrial inspection system.
 
 ## System Context
-
-The intended system context is:
 
 ```text
 External datasets
         ↓
 Python model-development repository
         ↓
-Versioned model artifact package
+Evaluated model artifact
         ↓
-.NET backend and inference runtime
+Future .NET inference backend
         ↓
 Client-neutral API
         ↓
 React web client      WPF desktop client
 ```
 
-The current repository implements only the Python model-development portion. It produces experimental feature-extractor artifacts and will later produce evaluated anomaly-model artifacts. The future backend will consume released artifacts and expose inspection operations. Clients will submit images and render backend results.
+The current repository implements the Python portion and a local artifact format. It does not yet provide the .NET runtime or client applications.
 
 ## Repository Boundaries
 
-The preferred long-term repository separation is:
+The preferred long-term separation is:
 
 ```text
 industrial-visual-anomaly-detection-model
@@ -124,706 +113,458 @@ Only the model repository currently exists.
 
 ### Model Repository
 
-The current model repository owns:
+The model repository owns:
 
-- dataset documentation;
-- dataset structure, inventory, readability, and mask validation;
+- dataset documentation and validation;
 - deterministic split creation;
-- preprocessing experiments;
-- pretrained feature extraction;
-- anomaly-model development;
-- threshold selection;
-- evaluation;
-- ONNX export;
-- Python/ONNX parity checks;
-- experiment configuration;
-- artifact metadata preparation.
+- preprocessing experiments and implementation;
+- feature extraction and patch embeddings;
+- feature-memory creation and experiments;
+- anomaly scoring, threshold selection, and evaluation;
+- heatmap generation;
+- ONNX feasibility and parity checks;
+- model-artifact export, loading, and reference inference;
+- experiment and artifact metadata design.
 
-It must not own:
+It must not own ASP.NET Core hosting, WPF or React presentation code, production authentication, or operational database persistence.
 
-- ASP.NET Core hosting;
-- WPF presentation code;
-- React presentation code;
-- client-specific workflows;
-- production authentication;
-- operational database persistence.
+### Future Backend Repository
 
-### Backend Repository
+The backend should own:
 
-The future backend repository is intended to own:
-
-- model-artifact discovery and validation;
+- artifact discovery, validation, and persistent loading;
+- production preprocessing equivalent to Python;
 - ONNX Runtime integration;
-- production image preprocessing;
-- Memory Bank loading;
-- nearest-neighbor scoring;
-- threshold application;
-- inspection orchestration;
+- patch-embedding construction;
+- feature-memory search and score aggregation;
+- threshold application and anomaly-map production;
 - stable request and response contracts;
 - optional inspection-history persistence;
-- health, diagnostics, and observability;
-- backend tests.
+- health, diagnostics, security controls, and observability.
 
-The backend must not contain client-specific layout, colors, dialogs, or navigation behavior.
+### Future Web and Desktop Repositories
 
-### Web Repository
+Clients should own image selection, previews, request submission, result visualization, history views, platform-specific interaction, and presentation tests. They must not duplicate preprocessing, scoring, or threshold rules.
 
-The future React web repository is intended to own:
+The first WPF client should consume the backend API. Offline desktop inference remains optional future work.
 
-- image upload and preview;
-- inspection submission;
-- result visualization;
-- anomaly-map overlays;
-- inspection-history views;
-- responsive web behavior;
-- frontend validation and error presentation;
-- web tests.
-
-The web client must not duplicate model preprocessing or anomaly-scoring rules.
-
-### Desktop Repository
-
-The future WPF desktop repository is intended to own:
-
-- desktop image selection;
-- inspection submission;
-- result and heatmap presentation;
-- inspection-history views;
-- desktop-specific commands and dialogs;
-- WPF and ViewModel tests.
-
-The first desktop version is expected to consume the backend API. Optional offline inference may be evaluated later but is not part of the initial architecture baseline.
-
-## Current Model-Development Repository
-
-The current repository contains:
+## Current Model Repository Structure
 
 ```text
 configs/
   splits/
-    mvtec-ad-bottle-seed-42.json
 docs/
-  ArchitectureOverview.md
-  DatasetDocumentation.md
-  DevelopmentStatus.md
-  ModelDevelopmentStrategy.md
-  ProjectSpecification.md
 scripts/
   create_mvtec_ad_split.py
+  evaluate_mvtec_ad_category.py
+  export_mvtec_ad_model.py
   inspect_preprocessing.py
+  predict_image.py
   validate_mvtec_ad.py
   validate_mvtec_ad_2.py
   validate_mvtec_loco_ad.py
+src/
+  industrial_visual_anomaly_detection/
+    artifacts/
+    datasets/
+    models/
+    evaluation.py
+    inference.py
+    preprocessing.py
+    visualization.py
+tests/
 .gitignore
 .python-version
 environment_check.py
+pyproject.toml
 README.md
 requirements.txt
 ```
 
-Local virtual environments, editor settings, datasets, generated reports, caches, ONNX exports, model artifacts, and experiment output are excluded from version control.
+Virtual environments, datasets, reports, caches, ONNX exports, model artifacts, and experiment outputs are excluded from version control.
 
-## Model Development Architecture
-
-The selected first Python model pipeline is:
+## Python Model Architecture
 
 ```text
-MVTec AD bottle configuration
+validated normal images
         ↓
-Dataset validation
+deterministic fitting and validation manifest
         ↓
-Deterministic fitting/validation split
+category configuration and preprocessing
         ↓
-Image preprocessing
-        ↓
-Pretrained ResNet18 feature extractor
+frozen pretrained ResNet18
         ↓
 layer2 and layer3 feature maps
         ↓
-Multi-scale local patch embeddings
+384-dimensional patch embeddings
         ↓
-Optional coreset selection
+complete or sampled normal feature memory
         ↓
-Normal feature Memory Bank
+exact chunked nearest-neighbor distances
         ↓
-Nearest-neighbor anomaly scoring
+patch-score grid
         ↓
-Normal-validation threshold selection
+image-score aggregation
         ↓
-Official bottle test evaluation
+normal-validation threshold
         ↓
-Versioned artifact export
+decision, evaluation, heatmap, and artifact export
 ```
 
-### Dataset Configuration
+### Dataset Boundary
 
-Dataset configuration must define:
-
-- local dataset root supplied at runtime;
-- dataset family;
-- category;
-- fitting, validation, and test partitions;
-- image and mask locations;
-- permitted image extensions;
-- preprocessing configuration;
-- deterministic random seed.
-
-Machine-specific absolute dataset paths must not be committed as public defaults. The deterministic membership of the first bottle split is stored in:
-
-```text
-configs/splits/mvtec-ad-bottle-seed-42.json
-```
-
-### Dataset Validation
-
-The implemented dataset validators currently verify relevant combinations of:
-
-- expected categories and directories;
-- required root files;
-- partition inventories;
-- readable PNG files;
-- image dimensions and modes;
-- image and mask counts;
-- image-mask filename correspondence;
-- mask dimensions, modes, and content.
-
-The deterministic split was additionally checked for complete source coverage and zero overlap.
-
-All three dataset validators can write schema-versioned JSON reports after successful validation. Generated reports currently contain resolved local dataset paths and remain ignored local output. Future validation may add duplicate-content detection. Validation must run before fitting or evaluation.
-
-### Dataset Storage Boundary
-
-Dataset archives and extracted data are stored outside the repository under:
+Datasets are stored outside the repository under:
 
 ```text
 C:/dev/data/industrial-visual-anomaly-detection/
 ```
 
-The repository contains documentation, checksums, scripts, and split manifests, but not the datasets themselves.
+Runtime commands receive the local root explicitly. Public configuration and manifests do not contain machine-specific dataset roots.
+
+Validators check relevant combinations of expected structure, inventories, image readability, dimensions, modes, mask naming, mask dimensions, and mask content. Successful validation can produce ignored local JSON reports.
+
+### Split Manifests
+
+Versioned manifests define deterministic membership with relative paths. The current manifests are:
+
+```text
+configs/splits/mvtec-ad-bottle-seed-42.json
+configs/splits/mvtec-ad-capsule-seed-42.json
+```
+
+Manifest loading validates counts, duplicates, overlap, absolute paths, and parent traversal. Paths are resolved against a dataset root supplied at runtime.
 
 ### Preprocessing
 
-Fitting and runtime preprocessing must be equivalent.
+The implemented preprocessing performs:
 
-The selected preprocessing contract for the initial MVTec AD Bottle baseline performs:
-
-- image decoding;
-- RGB conversion;
-- direct resizing to 224 × 224 pixels;
+- image decoding and RGB conversion;
+- direct resizing to a configured square input;
 - bilinear interpolation with antialiasing;
-- conversion to a floating-point tensor;
-- ImageNet normalization using the mean and standard deviation expected by the pretrained ResNet18 weights.
+- tensor conversion;
+- ImageNet normalization.
 
-The resulting tensor shape is:
+Bottle uses 224 × 224. The selected Capsule reference uses 320 × 320. Direct resizing was selected for Bottle because center cropping removed object-boundary information.
 
-```text
-(3, 224, 224)
-```
+The artifact currently stores the input size. Mean, standard deviation, interpolation, antialiasing, and RGB conversion remain defined by the versioned Python implementation. A cross-runtime artifact must store these semantics explicitly.
 
-The default TorchVision pipeline, which resizes to 256 × 256 pixels and then applies a 224 × 224 center crop, was evaluated visually as an alternative.
+### Feature Extractor and Patch Embeddings
 
-Direct resizing was selected because it preserves the complete bottle boundary and surrounding background. Center cropping removes part of the outer image area and could therefore discard defects near the object boundary.
-
-All inspected MVTec AD Bottle images are square at 900 × 900 pixels. Direct resizing therefore introduces no aspect-ratio distortion for the selected first category.
-
-The inspection script retains both preprocessing variants for visual comparison, but only direct 224 × 224 resizing is selected for the initial Bottle model pipeline.
-
-Every preprocessing decision required for inference must later be represented in exported metadata and reproduced by the .NET runtime.
-
-### Feature Extractor
-
-The selected initial feature extractor is a pretrained ResNet18.
-
-For an input tensor shaped `(1, 3, 224, 224)`, the verified outputs are:
+For 224 × 224 input:
 
 ```text
-layer2: (1, 128, 28, 28)
-layer3: (1, 256, 14, 14)
+layer2:          (1, 128, 28, 28)
+layer3:          (1, 256, 14, 14)
+patch embeddings:      (784, 384)
 ```
 
-The `layer3` output is resized to 28 × 28 and concatenated with `layer2`, producing:
+For 320 × 320 input:
 
 ```text
-(1, 384, 28, 28)
+layer2:          (1, 128, 40, 40)
+layer3:          (1, 256, 20, 20)
+patch embeddings:     (1600, 384)
 ```
 
-This is rearranged into:
-
-```text
-(784, 384)
-```
-
-Each input image therefore produces 784 local patch embeddings with 384 feature values each.
-
-The backbone remains frozen for the first baseline. Fine-tuning is deferred until the frozen-feature baseline has been evaluated.
-
-### Memory Bank
-
-The planned Memory Bank represents local features extracted from the 167 normal bottle fitting images.
-
-The first implementation must establish:
-
-- deterministic embedding extraction order;
-- tensor shape and data type;
-- storage size before reduction;
-- whether all embeddings can be retained practically;
-- whether a coreset is required;
-- serialization format;
-- metadata linking the Memory Bank to the backbone and preprocessing version.
-
-The Memory Bank must be treated as part of the model artifact. It must never be mixed across incompatible feature extractors, layers, input sizes, or normalization rules.
-
-No Memory Bank has been built yet.
-
-### Anomaly Scoring
-
-The planned scoring process is:
-
-```text
-input image
-→ preprocessing
-→ patch embeddings
-→ nearest-neighbor distances to normal Memory Bank
-→ patch anomaly scores
-→ image anomaly score
-→ resized anomaly map
-→ threshold-based decision
-```
-
-The exact nearest-neighbor implementation, image-score aggregation, map interpolation, smoothing, and threshold method remain open.
-
-No anomaly-scoring implementation exists yet.
-
-### Evaluation
-
-The first evaluation uses the complete official MVTec AD bottle test partition and its supplied masks.
-
-Evaluation must distinguish:
-
-- image-level anomaly detection;
-- pixel-level anomaly localization;
-- runtime performance;
-- artifact size and memory usage.
-
-Candidate metrics include:
-
-- image-level AUROC;
-- pixel-level AUROC;
-- Average Precision;
-- Precision;
-- Recall;
-- F1 score;
-- confusion matrix;
-- inference time.
-
-The exact MVP metric set remains open. Official test data must remain isolated from model fitting, threshold optimization, and hyperparameter selection. The 42 normal validation images are reserved for threshold selection and normal-score analysis.
-
-No evaluation results exist yet.
-
-## Model Artifact Architecture
-
-The model repository is expected to export a versioned artifact package after the first model has been evaluated.
-
-Candidate contents are:
-
-```text
-model-package/
-├── feature-extractor.onnx
-├── feature-memory.*
-├── model-metadata.json
-├── preprocessing.json
-├── thresholds.json
-├── evaluation-summary.json
-├── checksums.txt
-└── notices/
-```
-
-### Feature Extractor
-
-`feature-extractor.onnx` contains the neural feature-extraction graph and pretrained parameters required for inference.
-
-The current ONNX export is provisional. It proves export and numerical parity but is not a released model artifact.
+`layer3` is resized to the spatial resolution of `layer2`, concatenated along the channel dimension, and rearranged into one 384-dimensional embedding per patch position. The backbone is frozen and kept in evaluation mode.
 
 ### Feature Memory
 
-The feature-memory artifact will contain the selected normal reference embeddings or coreset. Its serialization format has not yet been selected.
+The feature memory contains normal fitting embeddings and is part of the fitted model state. It must never be combined with incompatible preprocessing, backbone weights, feature layers, dimensions, or input resolution.
 
-### Model Metadata
-
-The metadata must identify at least:
-
-- artifact schema version;
-- model version;
-- dataset and category;
-- dataset archive checksum where appropriate;
-- split-manifest reference;
-- backbone and pretrained weight version;
-- input dimensions;
-- preprocessing configuration;
-- selected feature layers;
-- feature tensor dimensions;
-- Memory Bank or coreset configuration;
-- scoring configuration;
-- threshold method and value;
-- evaluation summary;
-- framework versions;
-- license and attribution information.
-
-The backend must reject artifact packages with unsupported schema versions, missing required files, incompatible dimensions, or invalid checksums where checksums are required.
-
-## .NET Runtime Architecture
-
-The planned .NET runtime isolates model-specific behavior behind application-facing interfaces.
+The selected Capsule artifact contains:
 
 ```text
-API
- ↓
-Application orchestration
- ↓
-Inspection domain model
- ↓
-Model runtime abstraction
- ↓
+shape: (280000, 384)
+dtype: float32
+size:  approximately 410.16 MiB
+```
+
+Deterministic random sampling at 75%, 50%, and 25% reduced runtime but degraded recall. Complete memory remains the reference configuration. Smarter coreset selection is open.
+
+### Nearest-Neighbor Scoring
+
+For every query patch, the implementation computes its Euclidean distance to the nearest normal feature-memory entry. Memory is processed in configurable chunks to bound temporary distance tensors while preserving exact results.
+
+Distances are reshaped into a patch grid. Supported image aggregation includes the maximum patch score and the mean of the highest configurable fraction. Top-one-percent mean is selected for the Capsule reference artifact.
+
+### Threshold and Evaluation
+
+The threshold is selected exclusively from normal validation images as their maximum image-level score. Only scores strictly above the threshold are anomalous.
+
+Official test labels and masks are not used for fitting or threshold calculation. Test-folder names support grouped analysis. The current metrics include confusion-matrix counts, accuracy, precision, recall, F1, per-group detection rates, and runtime measurements.
+
+Bottle and Capsule results are exploratory because their test partitions were inspected during development. Pixel-level evaluation remains open.
+
+### Visualization
+
+Patch grids can be resized to image resolution, normalized, colorized, and blended with source images. Fixed threshold-based normalization provides more comparable heatmaps than independent per-image normalization.
+
+Visualization is separate from classification logic. A heatmap supports interpretation but is not evidence of localization accuracy without mask-based metrics.
+
+## Model Artifact Architecture
+
+### Implemented Local Artifact
+
+The current artifact directory contains:
+
+```text
+model-artifact/
+  metadata.json
+  feature_memory.pt
+```
+
+The typed metadata contains:
+
+- schema version;
+- dataset and category;
+- backbone name;
+- input and patch-grid sizes;
+- embedding dimension;
+- aggregation method and top fraction;
+- validation-derived threshold;
+- memory fraction and sampling seed;
+- feature-memory entry count.
+
+The writer validates shape, finite values, entry count, and embedding dimension. The loader verifies the required files, reconstructs the typed metadata, loads the tensor on CPU with `weights_only=True`, and validates the tensor type, dimensionality, finite values, entry count, and embedding dimension.
+
+The local format is sufficient for Python reference inference but is not yet framework-neutral.
+
+### Reference Capsule Artifact
+
+```text
+dataset:                mvtec-ad
+category:               capsule
+backbone:               resnet18
+input size:             320 × 320
+patch grid:             40 × 40
+embedding dimension:    384
+feature-memory entries: 280000
+aggregation:            top_fraction_mean
+top fraction:           0.01
+memory fraction:        1.0
+threshold:              2.501821517944336
+```
+
+The generated artifact is stored under `outputs/model-artifacts/` and ignored by Git.
+
+### Intended Cross-Runtime Package
+
+A future release package should evolve toward:
+
+```text
+model-package/
+  feature-extractor.onnx
+  feature-memory.<framework-neutral-format>
+  model-metadata.json
+  evaluation-summary.json
+  checksums.txt
+  notices/
+```
+
+Metadata must additionally identify the pretrained weight version, feature layers, complete preprocessing semantics, split manifest, software versions, artifact version, license attribution, and evaluation context.
+
+The consuming runtime must reject unsupported schema versions, missing files, incompatible dimensions, and invalid checksums.
+
+## Reference Inference Architecture
+
+The implemented Python inference flow is:
+
+```text
+artifact directory + image
+        ↓
+load metadata and feature memory
+        ↓
+create frozen ResNet18 extractor
+        ↓
+decode, convert, resize, and normalize image
+        ↓
+extract patch embeddings
+        ↓
+exact nearest-neighbor scoring
+        ↓
+top-fraction aggregation
+        ↓
+compare score with stored threshold
+        ↓
+AnomalyPrediction
+```
+
+`AnomalyPrediction` contains the resolved image path, score, threshold, Boolean decision, and patch-score map. `scripts/predict_image.py` exposes this flow through a CLI.
+
+Verified Capsule predictions took approximately 1.44–1.46 seconds each on the current CPU, excluding the separately measured artifact load and extractor creation time. A persistent service should initialize the artifact and extractor once and reuse them.
+
+## Future .NET Runtime Architecture
+
+```text
+ASP.NET Core API
+        ↓
+application orchestration
+        ↓
+inspection domain model
+        ↓
+model runtime abstraction
+        ↓
 ONNX Runtime + feature memory + scoring
 ```
 
-This runtime does not exist yet.
-
 ### Domain
 
-The future domain layer should represent concepts such as:
-
-- inspection request;
-- inspection result;
-- anomaly decision;
-- anomaly score;
-- anomaly region or heatmap reference;
-- model identity;
-- validation failure.
-
-It must not reference ASP.NET Core, WPF, React, ONNX Runtime, or a database provider.
+The domain should represent inspection requests and results, anomaly decisions, scores, patch maps or result references, model identity, and validation failures. It must not depend on ASP.NET Core, WPF, React, ONNX Runtime, or a database provider.
 
 ### Application
 
-The future application layer should coordinate:
-
-- request validation;
-- image decoding;
-- preprocessing;
-- model selection;
-- inference;
-- anomaly scoring;
-- persistence where enabled;
-- response creation.
+The application layer should coordinate request validation, decoding, model selection, inference, optional persistence, and response creation.
 
 ### Model Runtime
 
-The future model runtime should own:
-
-- artifact loading;
-- ONNX Runtime session creation;
-- feature-output validation;
-- Memory Bank loading;
-- nearest-neighbor search;
-- patch-score aggregation;
-- anomaly-map production;
-- threshold application.
-
-It should be independently testable without hosting the web API.
+The runtime should own artifact validation, persistent loading, ONNX session creation, preprocessing, feature-output validation, embedding construction, nearest-neighbor search, aggregation, heatmaps, and threshold application. It should be independently testable without API hosting.
 
 ### Infrastructure
 
-The future infrastructure layer may provide:
-
-- file-system artifact storage;
-- database-backed inspection history;
-- image storage;
-- clock and identifier services;
-- logging adapters;
-- configuration providers.
+Infrastructure may provide file-system artifact storage, inspection-history persistence, image storage, identifiers, clocks, logging, and configuration.
 
 ### API
 
-The future ASP.NET Core API should provide client-neutral operations such as:
+The API should provide client-neutral operations for inspecting an image, retrieving model information, accessing optional history, and reporting health and readiness.
 
-- inspect one image;
-- retrieve model information;
-- retrieve inspection history where persistence is enabled;
-- report health and readiness.
-
-The exact API contract is not yet implemented.
-
-## Inspection Runtime Flow
-
-The planned request flow is:
+## Intended Request Flow
 
 ```text
-Client submits image
+client submits image
         ↓
-API validates request metadata and payload limits
+API validates payload and selects compatible artifact
         ↓
-Application selects a compatible model artifact
+runtime decodes and preprocesses image
         ↓
-Runtime decodes and preprocesses the image
+ONNX extractor produces feature maps
         ↓
-ONNX feature extractor produces feature maps
+runtime creates patch embeddings
         ↓
-Runtime produces patch embeddings
+nearest-neighbor search produces patch scores
         ↓
-Nearest-neighbor search compares patches with normal memory
+aggregation and threshold produce decision
         ↓
-Runtime builds patch scores and anomaly map
+application creates client-neutral response
         ↓
-Threshold produces normal/anomalous decision
+optional persistence records inspection metadata
         ↓
-Application creates client-neutral result
-        ↓
-Optional persistence records inspection metadata
-        ↓
-Client renders score, decision, and overlay
+client renders decision, score, and overlay
 ```
 
 ## Client-Neutral Result Contract
 
-The backend should return analysis information rather than presentation instructions.
-
-Appropriate result fields may include:
+Appropriate fields include:
 
 - inspection identifier;
-- model identifier and version;
+- model and artifact version;
 - category;
-- anomaly score;
-- threshold;
+- anomaly score and threshold;
 - normal/anomalous decision;
 - anomaly-map or overlay reference;
 - processing duration;
-- warnings;
-- validation messages.
+- warnings and validation messages.
 
-The backend should not return presentation-specific fields such as button colors, tab selection, dialog text, WPF commands, or React component names.
+The backend must not return UI-specific instructions such as colors, tab selection, dialogs, WPF commands, or React component names.
 
-The exact schema remains illustrative until implemented.
+## Configuration and Persistence
 
-## Persistence Direction
+Configuration must separate public defaults, local overrides, deployment values, and secrets. Reproducibility-critical model behavior belongs in artifact metadata rather than only environment configuration.
 
-Inspection-history persistence is planned but not yet designed.
+Optional inspection persistence may record identifiers, timestamps, model versions, image references or checksums, scores, thresholds, decisions, durations, and failures. Raw image retention must be optional and governed by explicit privacy and retention rules.
 
-Potential persisted information includes:
+## Security and Safety
 
-- inspection identifier;
-- timestamp;
-- model and artifact versions;
-- image reference or checksum;
-- category;
-- anomaly score and threshold;
-- decision;
-- processing duration;
-- validation or runtime failures.
+The future backend must treat images and artifacts as untrusted inputs. Required safeguards include media validation, bounded upload and decoded dimensions, controlled temporary storage, cancellation, timeouts, schema validation, checksum validation, and safe errors.
 
-Raw image persistence must be optional and governed by privacy, retention, storage, and security requirements.
-
-## Configuration Direction
-
-Configuration should separate:
-
-- public repository defaults;
-- local development overrides;
-- deployment environment values;
-- secrets.
-
-Machine-specific dataset roots, credentials, private endpoints, and secrets must not be committed.
-
-Model behavior that affects reproducibility must be stored in versioned experiment or artifact metadata rather than only in local environment configuration.
-
-## Security and Safety Considerations
-
-The future backend must treat uploaded images and model artifacts as untrusted inputs.
-
-Planned safeguards include:
-
-- media-type and file-signature validation;
-- bounded upload sizes;
-- bounded decoded image dimensions;
-- controlled temporary storage;
-- request timeouts and cancellation;
-- artifact schema and checksum validation;
-- safe error responses;
-- separation of public configuration and secrets.
-
-The system must not be represented as a validated production quality-control system without appropriate domain validation, regulatory work, operational monitoring, and controlled deployment.
+The project must not be represented as a validated production quality-control system without domain validation, controlled deployment, regulatory assessment where applicable, and operational monitoring.
 
 ## Testing Strategy
 
-### Python Tests
+### Implemented Python Tests
 
-Python tests should cover:
+The current 54 tests cover manifests, dataset discovery, preprocessing, embeddings, feature memory, sampling, nearest-neighbor distances, scoring, aggregation, metrics, visualization, and artifact persistence.
 
-- dataset structure and inventory validation;
-- image and mask correspondence;
-- deterministic split behavior;
-- split overlap prevention;
-- preprocessing output shape and values;
-- feature-output dimensions;
-- embedding construction;
-- Memory Bank creation;
-- anomaly scoring;
-- threshold selection;
-- metric calculation;
-- artifact metadata validation;
-- ONNX export and loading;
-- PyTorch/ONNX numerical parity.
+### Additional Python Tests
 
-### .NET Runtime Tests
+Next coverage should include single-image inference behavior, artifact schema compatibility, malformed metadata, CLI result serialization, and experiment-report generation.
 
-Future .NET tests should cover:
+### Future Cross-Runtime Tests
 
-- artifact compatibility checks;
-- preprocessing parity with Python;
-- ONNX input and output dimensions;
-- feature-memory loading;
-- nearest-neighbor scoring;
-- threshold application;
-- malformed image handling;
-- cancellation and timeout behavior.
+Fixed fixtures should compare Python and .NET results for preprocessing tensors, ONNX features, patch embeddings, nearest-neighbor distances, aggregated scores, maps, and threshold decisions.
 
-### API Tests
+### Future API and Client Tests
 
-Future API tests should cover:
+API tests should cover valid requests, malformed images, unsupported media, payload limits, unavailable artifacts, cancellation, and stable errors. Client tests should cover selection, submission, loading, success, error, history, and overlay rendering.
 
-- valid inspection requests;
-- unsupported media types;
-- oversized payloads;
-- invalid model identifiers;
-- unavailable artifacts;
-- health and readiness behavior;
-- stable error contracts.
+## Observability and Deployment Direction
 
-### Client Tests
+The future backend should record artifact identity, preprocessing and inference duration, failures, outcomes, and resource use without exposing sensitive image content.
 
-Future client tests should cover:
-
-- image selection;
-- request submission;
-- loading, success, and error states;
-- result rendering;
-- anomaly-map overlays;
-- validation messages.
-
-### Cross-Runtime Contract Tests
-
-Cross-runtime tests should compare Python and .NET results for fixed fixtures, including:
-
-- preprocessed tensors;
-- ONNX feature outputs;
-- patch embeddings;
-- nearest-neighbor distances;
-- image-level scores;
-- anomaly-map dimensions;
-- threshold decisions.
-
-## Observability Direction
-
-The future backend should record:
-
-- model and artifact versions;
-- inference duration;
-- preprocessing duration;
-- scoring duration;
-- validation failures;
-- artifact-loading failures;
-- request outcome;
-- resource usage where practical.
-
-Logs must not expose secrets or sensitive image contents.
-
-## Deployment Direction
-
-Initial deployment should remain simple and CPU-compatible.
-
-Potential future modes include:
-
-- local development with Python tooling;
-- a self-contained .NET backend using ONNX Runtime;
-- a centrally hosted web API;
-- a WPF client consuming that API;
-- a React client consuming that API;
-- optional offline desktop inference after parity is proven.
-
-Deployment design must follow evaluated model behavior rather than being finalized before the baseline exists.
+Initial deployment should remain CPU-compatible. Potential modes include a self-contained .NET backend, central API hosting, WPF and React clients, and later optional offline desktop inference after parity is proven.
 
 ## Known Architectural Risks
 
-- A full PatchCore Memory Bank may become large.
-- CPU nearest-neighbor search may become a bottleneck.
-- Incorrect preprocessing parity can invalidate cross-runtime results.
-- Direct resizing to 224 × 224 may reduce the visibility of very small defects.
-- Later non-square categories may require padding, aspect-ratio-preserving resizing, or category-specific preprocessing.
-- Threshold selection can leak test information if validation is not isolated.
-- ONNX may not represent the complete anomaly pipeline conveniently.
-- Model updates may break older runtimes without artifact schema versioning.
-- Dataset licenses constrain redistribution and commercial use.
-- Public benchmark performance may not transfer to real industrial images.
-- A prototype may be misunderstood as a validated inspection system.
+- complete feature memories are large;
+- exact CPU nearest-neighbor search may limit throughput;
+- random sampling reduces quality on Capsule;
+- preprocessing mismatch can invalidate cross-runtime results;
+- small defects may require higher input resolution;
+- non-square categories need a deliberate resize policy;
+- threshold or hyperparameter selection can leak test information;
+- ONNX represents the neural extractor, not automatically the complete pipeline;
+- artifact evolution requires schema and compatibility management;
+- dataset licenses constrain redistribution and commercial use;
+- benchmark results may not transfer to real industrial imagery;
+- a prototype may be mistaken for a validated inspection system.
 
 ## Current Non-Goals
 
-The current phase does not include:
-
 - production deployment;
-- real-time camera integration;
-- PLC integration;
-- user authentication;
-- a production database;
-- web or desktop UI implementation;
+- real-time camera or PLC integration;
+- authentication and a production database;
+- implemented web or desktop UI;
 - supervised defect-type classification;
-- multi-model orchestration;
-- automated retraining;
+- automated retraining or multi-model orchestration;
 - regulatory validation;
 - real pharmaceutical packaging validation.
 
-## Completed Architectural Validation Steps
+## Completed Architectural Milestones
 
-The following steps have been completed:
+1. Reproducible Python environment and dependency setup.
+2. CPU-based pretrained ResNet18 and intermediate feature extraction.
+3. Patch embeddings and ONNX feasibility with parity checks.
+4. Acquisition and validation of three MVTec datasets.
+5. Machine-readable dataset reports.
+6. Deterministic Bottle and Capsule manifests.
+7. Reusable dataset, preprocessing, model, scoring, evaluation, and visualization modules.
+8. Bottle baseline and Capsule generalization evaluation.
+9. Configurable resolution and aggregation experiments.
+10. Feature-memory sampling implementation and tradeoff evaluation.
+11. Typed artifact metadata, writer, loader, and round-trip tests.
+12. Export of the complete 320 × 320 Capsule reference artifact.
+13. Verified normal and anomalous single-image CLI inference.
 
-1. Establish a reproducible Python environment.
-2. Verify pretrained ResNet18 execution on CPU.
-3. Verify intermediate feature extraction and patch-embedding construction.
-4. Export the feature extractor to ONNX.
-5. Verify PyTorch and ONNX Runtime numerical parity.
-6. Acquire and document MVTec AD, MVTec LOCO AD, and MVTec AD 2.
-7. Validate dataset structures, inventories, image readability, and available masks.
-8. Select MVTec AD bottle as the first category.
-9. Create and verify the deterministic 167/42 bottle split.
-10. Compare the default center-crop pipeline with direct 224 × 224 resizing on normal and anomalous Bottle images.
-11. Add schema-versioned JSON reporting to all three dataset validators.
-12. Correct MVTec LOCO AD mask validation to use category-specific values from `defects_config.json`.
-13. Select direct 224 × 224 resizing as the initial Bottle preprocessing contract.
+## Immediate Architectural Steps
 
-## Immediate Architectural Validation Steps
-
-The next steps should be performed in this order:
-
-1. Refactor the Python technical spike into reusable, testable modules.
-2. Load the Bottle partitions through the deterministic split manifest.
-3. Add automated tests for dataset report generation and schema contents.
-4. Build and measure the first normal feature memory.
-5. Implement and verify nearest-neighbor anomaly scoring.
-6. Select a threshold using only normal validation scores.
-7. Evaluate the baseline on the official Bottle test partition.
-8. Define the first artifact metadata schema from the evaluated implementation.
-9. Package the ONNX model, feature memory, metadata, threshold, and evaluation summary.
-10. Create a minimal .NET console spike that loads the package.
-11. Verify Python/.NET preprocessing and scoring parity.
-12. Finalize backend repository structure and implement the ASP.NET Core API.
-13. Add web and desktop clients only after the backend contract is stable.
+1. Consolidate the remaining strategy, specification, and README documents.
+2. Add inference and artifact-compatibility tests.
+3. Define the complete framework-neutral artifact schema.
+4. Export and verify the selected 320 × 320 ONNX extractor.
+5. Select a framework-neutral feature-memory format.
+6. Add checksums and machine-readable evaluation summaries.
+7. Verify full Python artifact reproducibility from a clean environment.
+8. Build a minimal .NET console parity spike before designing the web API.
+9. Finalize the backend boundary only after parity is demonstrated.
+10. Add clients after the backend contract is stable.
 
 ## Related Documentation
 
-- `DevelopmentStatus.md` records verified results and the current implementation state.
-- `ProjectSpecification.md` defines the current product scope and requirements.
-- `ModelDevelopmentStrategy.md` defines fitting, validation, evaluation, and experiment rules.
-- `DatasetDocumentation.md` records dataset sources, licenses, structures, validation results, and the selected initial category.
-- A future `ModelCard.md` will document a specific evaluated model artifact after one exists.
+- `DevelopmentStatus.md` records verified results and active work.
+- `ProjectSpecification.md` defines product scope and requirements.
+- `ModelDevelopmentStrategy.md` defines fitting, validation, and experiment rules.
+- `DatasetDocumentation.md` records sources, licenses, structures, and validation.
+- A future `ModelCard.md` should document a released evaluated artifact.
 
 ## Last Updated
 

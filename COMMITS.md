@@ -34,7 +34,7 @@ Common scopes for this project include:
 - `splits`: deterministic fitting, validation, and test partition manifests
 - `preprocessing`: image decoding, resizing, cropping, tensors, and normalization
 - `features`: pretrained backbone integration, feature maps, and patch embeddings
-- `memory`: feature-memory construction, serialization, and coreset selection
+- `memory`: feature-memory construction, serialization, sampling, and future coreset selection
 - `scoring`: nearest-neighbor distances, patch scores, and image-level scores
 - `thresholds`: threshold selection, calibration, and decision rules
 - `localization`: anomaly maps, resizing, smoothing, and mask generation
@@ -108,7 +108,7 @@ fix(preprocessing): preserve rgb channel order
 ```
 
 ```text
-perf(memory): reduce feature memory with deterministic coreset sampling
+feat(memory): add deterministic feature-memory sampling
 ```
 
 ```text

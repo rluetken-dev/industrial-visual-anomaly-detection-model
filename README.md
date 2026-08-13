@@ -1,139 +1,106 @@
 # Industrial Visual Anomaly Detection
 
-Industrial Visual Anomaly Detection is an evolving computer-vision portfolio project for detecting and spatially localizing unusual visual patterns in industrial inspection images.
+[![CI](https://github.com/rluetken-dev/industrial-visual-anomaly-detection-model/actions/workflows/ci.yml/badge.svg)](https://github.com/rluetken-dev/industrial-visual-anomaly-detection-model/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.13-EE4C2C?logo=pytorch&logoColor=white)
+![Status](https://img.shields.io/badge/status-experimental-orange)
 
-The project is designed to combine Python-based model development with portable ONNX inference artifacts and a planned .NET application stack. The first model-development cycle uses the MVTec AD `bottle` category and targets CPU-compatible anomaly detection with explainable heatmap output.
+Industrial Visual Anomaly Detection is an educational and portfolio-oriented computer-vision project for detecting unusual visual patterns in industrial inspection images and highlighting suspicious regions.
 
-> **Development status:** The technical feature-extraction and ONNX feasibility spike is complete. Three candidate dataset families have been validated locally, the first MVP dataset and category have been selected, and a deterministic fitting/validation split has been generated. No anomaly-detection model has yet been fitted or evaluated. The backend, web client, and desktop client are planned but not implemented.
+The implemented Python MVP uses a frozen pretrained ResNet18 and a PatchCore-inspired feature-memory approach. It can validate datasets, create reproducible data splits, build category-specific anomaly models, evaluate them, generate heatmaps, export reusable artifacts, and classify individual images on CPU.
 
-## Project Goals
+> **Current status:** The Python model-development and local inference MVP is implemented. Bottle and Capsule have been evaluated exploratorily, a reusable Capsule reference artifact can be exported, and 54 automated tests cover the main deterministic components. The ASP.NET Core backend, web client, and desktop client are planned but not yet implemented.
 
-The project is intended to demonstrate:
+## What the Model Does
 
-- industrial visual anomaly detection using normal-only fitting data;
-- reuse of pretrained computer-vision features;
-- image-level anomaly scoring;
-- spatial anomaly localization through heatmaps;
-- reproducible dataset validation, splitting, experimentation, and evaluation;
-- portable inference artifacts using ONNX and framework-neutral supporting data;
-- cross-runtime numerical validation between Python, ONNX Runtime, and .NET;
-- a client-neutral ASP.NET Core inference backend;
-- separate React web and WPF desktop clients;
-- transparent documentation of model limitations and evaluation evidence.
+The model learns only from normal images:
 
-## Current Verified State
+1. images are converted to RGB, resized, and normalized;
+2. a frozen pretrained ResNet18 extracts intermediate feature maps;
+3. `layer2` and `layer3` features are combined into local patch embeddings;
+4. embeddings from normal fitting images form a feature memory;
+5. every patch of a new image is compared with its nearest normal neighbor;
+6. large distances indicate unusual visual regions;
+7. patch scores form an anomaly map and an image-level score;
+8. the score is compared with a threshold derived from held-out normal images.
 
-The project has verified:
+The current output is `normal` or `anomalous`. It does not classify the exact defect type.
 
-- Python 3.12 development inside an isolated virtual environment;
-- CPU-based PyTorch and TorchVision execution;
-- loading pretrained ResNet18 weights;
-- extraction of intermediate `layer2` and `layer3` feature maps;
-- multi-scale feature alignment and local patch-embedding generation;
-- ONNX export of the feature-extractor wrapper;
-- ONNX structural validation and ONNX Runtime execution;
-- close numerical agreement between PyTorch and ONNX Runtime feature outputs;
-- local structural, readability, inventory, and mask validation for MVTec AD, MVTec LOCO AD, and MVTec AD 2;
-- selection of MVTec AD `bottle` for the first MVP model-development cycle;
-- a deterministic 167/42 fitting and normal-validation split using seed 42;
-- successful execution and inspection of the TorchVision preprocessing transform associated with the default pretrained ResNet18 weights on a real `bottle` image.
+## Implemented Capabilities
 
-The feasibility tests do not yet demonstrate anomaly-detection accuracy, localization quality, threshold quality, robustness, or production readiness.
+- validation tooling for MVTec AD, MVTec LOCO AD, and MVTec AD 2;
+- optional schema-versioned JSON validation reports;
+- deterministic fitting and validation manifests;
+- configurable deterministic image preprocessing;
+- frozen ResNet18 `layer2` and `layer3` feature extraction;
+- 384-dimensional multi-scale patch embeddings;
+- complete feature-memory construction;
+- optional deterministic random feature-memory sampling;
+- exact chunked Euclidean nearest-neighbor scoring;
+- maximum and top-fraction-mean image-score aggregation;
+- normal-validation-based threshold selection;
+- image-level evaluation metrics and defect-group reporting;
+- anomaly heatmaps and image overlays;
+- versioned Python/PyTorch model artifact export and loading;
+- reusable single-image inference API and CLI;
+- automated unit tests and GitHub Actions CI.
 
-## Initial MVP Scope
+## Reference Configurations
 
-The first model-development cycle uses:
+### Bottle Baseline
 
-| Item | Initial decision |
+| Item | Value |
 | --- | --- |
-| Dataset family | MVTec AD |
+| Dataset | MVTec AD |
 | Category | `bottle` |
-| Task | Image-level anomaly detection and spatial localization |
-| Fitting data | 167 normal images from `bottle/train/good` |
-| Validation data | 42 held-out normal images from `bottle/train/good` |
-| Final test data | Complete official `bottle/test` directory |
+| Input size | 224 × 224 |
+| Fitting images | 167 normal images |
+| Validation images | 42 normal images |
 | Split seed | 42 |
-| Feature extractor | Pretrained ResNet18 feasibility baseline |
-| Primary strategy | PatchCore-style anomaly detection |
-| Initial runtime target | CPU on Windows |
-| Intended decision | `Normal` or `Anomalous` |
+| Patch grid | 28 × 28 |
+| Embedding dimension | 384 |
+| Feature memory | Complete fitting memory |
 
-Defect directory names such as `broken_large`, `broken_small`, and `contamination` are used for grouped evaluation only. The initial anomaly model will not classify the defect type.
+The top-1%-patch mean achieved perfect separation on the inspected Bottle test partition. This is an exploratory result, not an untouched final benchmark, because test images influenced development analysis.
 
-## Planned System
+### Capsule Artifact Reference
 
-The intended end-to-end system consists of:
+| Item | Value |
+| --- | --- |
+| Dataset | MVTec AD |
+| Category | `capsule` |
+| Input size | 320 × 320 |
+| Fitting images | 175 normal images |
+| Validation images | 44 normal images |
+| Split seed | 42 |
+| Patch grid | 40 × 40 |
+| Embedding dimension | 384 |
+| Aggregation | Mean of highest-scoring 1% of patches |
+| Feature memory | 280,000 × 384, approximately 410.16 MiB |
+| Threshold | Approximately `2.501822` |
 
-```text
-Industrial inspection image
-        ↓
-Deterministic preprocessing
-        ↓
-ONNX feature extractor
-        ↓
-Patch embeddings
-        ↓
-Memory Bank distance scoring
-        ↓
-Image anomaly score and heatmap
-        ↓
-ASP.NET Core inference API
-        ↓
-React web client and WPF desktop client
-```
+Exploratory Capsule test results:
 
-Python remains responsible for model development, experiment evaluation, and artifact export. The planned .NET backend will consume validated, versioned artifacts and expose a client-neutral inference contract. Web and desktop clients will call the backend instead of duplicating model logic.
-
-Repository boundaries for the future backend and clients remain open. This repository currently contains the model-development work.
-
-## Model Strategy
-
-PatchCore is the preferred primary model for the first cycle because it can:
-
-- fit from normal images only;
-- reuse pretrained visual representations;
-- avoid full backbone retraining;
-- produce local anomaly scores;
-- support both image-level decisions and heatmaps;
-- remain practical for a CPU-oriented proof of concept.
-
-In simplified form:
-
-```text
-Normal fitting images
-        ↓
-Pretrained feature extractor
-        ↓
-Normal local feature vectors
-        ↓
-Memory Bank representing normal appearance
-```
-
-During inference, local features from a new image are compared with the stored normal features. Large distances indicate visually unusual regions.
-
-A simpler baseline will be implemented before the PatchCore-style model is selected. Model and threshold decisions will use validation evidence rather than final test labels.
-
-## Dataset Policy
-
-The considered datasets are:
-
-- [MVTec AD](https://www.mvtec.com/research-teaching/datasets/mvtec-ad)
-- [MVTec LOCO AD](https://www.mvtec.com/research-teaching/datasets/mvtec-loco-ad)
-- [MVTec AD 2](https://www.mvtec.com/research-teaching/datasets/mvtec-ad-2)
-
-The official MVTec pages state that these datasets are licensed under CC BY-NC-SA 4.0 and prohibit commercial use without appropriate permission.
-
-Original archives, extracted images, masks, large derived data, and local validation reports are not stored in this repository. Dataset roots are supplied through command-line arguments or later configuration. The repository contains only source code, documentation, and small reproducibility manifests.
-
-Do not publish original dataset images, masks, adapted samples, Memory Banks, or other dataset-derived artifacts without reviewing the applicable license and redistribution conditions.
+| Metric | Value |
+| --- | ---: |
+| Accuracy | 0.9470 |
+| Precision | 0.9811 |
+| Recall | 0.9541 |
+| F1 score | 0.9674 |
+| False positives | 2 |
+| False negatives | 5 |
 
 ## Repository Structure
 
 ```text
 industrial-visual-anomaly-detection-model/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── configs/
 │   └── splits/
-│       └── mvtec-ad-bottle-seed-42.json
+│       ├── mvtec-ad-bottle-seed-42.json
+│       └── mvtec-ad-capsule-seed-42.json
 ├── docs/
 │   ├── ArchitectureOverview.md
 │   ├── DatasetDocumentation.md
@@ -142,191 +109,267 @@ industrial-visual-anomaly-detection-model/
 │   └── ProjectSpecification.md
 ├── scripts/
 │   ├── create_mvtec_ad_split.py
+│   ├── evaluate_mvtec_ad_category.py
+│   ├── export_mvtec_ad_model.py
 │   ├── inspect_preprocessing.py
+│   ├── predict_image.py
 │   ├── validate_mvtec_ad.py
 │   ├── validate_mvtec_ad_2.py
-│   └── validate_mvtec_loco_ad.py
-├── .gitignore
-├── .python-version
+│   ├── validate_mvtec_loco_ad.py
+│   └── visualize_bottle_anomaly.py
+├── src/
+│   └── industrial_visual_anomaly_detection/
+│       ├── artifacts/
+│       ├── datasets/
+│       ├── models/
+│       ├── evaluation.py
+│       ├── inference.py
+│       ├── preprocessing.py
+│       └── visualization.py
+├── tests/
+├── COMMITS.md
 ├── environment_check.py
-├── README.md
+├── pyproject.toml
 └── requirements.txt
 ```
 
-Generated ONNX files and local datasets are intentionally excluded from Git.
+Local datasets, generated reports, heatmaps, ONNX files, feature memories, and model artifacts are excluded from Git.
 
 ## Technology Stack
 
-Current model-development stack:
-
 - Python 3.12.10
-- PyTorch 2.13.0 CPU build
-- TorchVision 0.28.0 CPU build
+- PyTorch 2.13.0 CPU
+- TorchVision 0.28.0 CPU
 - Pillow 12.2.0
 - NumPy 2.4.4
 - ONNX 1.22.0
 - ONNX Runtime 1.28.0
 - ONNXScript 0.7.1
+- GitHub Actions
 
 Planned application stack:
 
-- ASP.NET Core backend
-- ONNX Runtime for .NET
-- React and TypeScript web client
-- WPF desktop client
-- automated test and CI workflows
+- ASP.NET Core backend;
+- separate web client;
+- separate desktop client;
+- shared versioned inference API.
 
-The planned stack must not be interpreted as implemented functionality.
-
-## Local Development Setup
+## Local Setup
 
 ### Prerequisites
 
-- Windows development environment
-- Python 3.12.10
+- Python 3.12
 - Git
-- sufficient local storage for separately downloaded datasets
+- sufficient storage for datasets kept outside the repository
 
-### Create The Virtual Environment
+The current implementation supports CPU-only execution. A CUDA-capable GPU is not required.
 
-From the repository root:
+### Create the Virtual Environment
 
 ```powershell
 python -m venv .venv
 ```
 
-PowerShell script execution policies may prevent activation. Activation is optional; every command can call the environment interpreter explicitly:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
-.\.venv\Scripts\python.exe -m pip install -r .\requirements.txt
-```
-
-If local policy permits activation:
+Activate it when PowerShell permits script execution:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-### Verify The Environment
+Activation is optional. All commands below call the environment interpreter explicitly.
+
+### Install Dependencies and Package
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip check
-.\.venv\Scripts\python.exe .\environment_check.py
+.\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+.\.venv\Scripts\python.exe -m pip install -r .\requirements.txt
+.\.venv\Scripts\python.exe -m pip install --editable .
 ```
 
-The technical spike currently exports generated ONNX files into the working directory. These files are ignored by Git.
+## Run the Quality Checks
 
-## Dataset Validation
+```powershell
+.\.venv\Scripts\python.exe -m compileall `
+    .\src `
+    .\scripts `
+    .\tests `
+    .\environment_check.py
 
-Datasets must be downloaded directly from their official sources and stored outside the repository.
+.\.venv\Scripts\python.exe -m pip check
 
-Example validator commands:
+.\.venv\Scripts\python.exe -m unittest discover `
+    -s .\tests `
+    -p "test_*.py" `
+    -v
+```
+
+The GitHub Actions workflow runs equivalent checks with Python 3.12 on Ubuntu for every push and pull request targeting `main`.
+
+## Dataset Setup
+
+Download datasets directly from their official sources and store them outside the repository:
+
+- [MVTec AD](https://www.mvtec.com/research-teaching/datasets/mvtec-ad)
+- [MVTec LOCO AD](https://www.mvtec.com/research-teaching/datasets/mvtec-loco-ad)
+- [MVTec AD 2](https://www.mvtec.com/research-teaching/datasets/mvtec-ad-2)
+
+The local project used:
+
+```text
+C:\dev\data\industrial-visual-anomaly-detection\raw\
+```
+
+This path is only an example. Supply your own dataset root to every command.
+
+## Validate the Datasets
+
+### MVTec AD
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\validate_mvtec_ad.py `
-    --dataset-root C:\path\to\mvtec-ad
-
-.\.venv\Scripts\python.exe .\scripts\validate_mvtec_loco_ad.py `
-    --dataset-root C:\path\to\mvtec-loco-ad
-
-.\.venv\Scripts\python.exe .\scripts\validate_mvtec_ad_2.py `
-    --dataset-root C:\path\to\mvtec_ad_2
-```
-
-The full validators decode every PNG file and may take several minutes for the larger datasets. They do not modify source images.
-
-Detailed acquisition checksums, inventory results, validation findings, licensing notes, and the MVTec LOCO AD count discrepancy are documented in [`docs/DatasetDocumentation.md`](docs/DatasetDocumentation.md).
-
-## Split Manifest
-
-The first MVP split is stored in:
-
-```text
-configs/splits/mvtec-ad-bottle-seed-42.json
-```
-
-It assigns all 209 normal `bottle/train/good` images exactly once:
-
-- 167 images for fitting;
-- 42 images for normal validation;
-- 0 overlapping entries.
-
-The manifest is authoritative. Model code must consume it rather than generating another split implicitly.
-
-The split can be regenerated deliberately with:
-
-```powershell
-.\.venv\Scripts\python.exe .\scripts\create_mvtec_ad_split.py `
     --dataset-root C:\path\to\mvtec-ad `
-    --output .\configs\splits\mvtec-ad-bottle-seed-42.json
+    --report .\validation-reports\mvtec-ad.json
 ```
 
-Regeneration should be followed by review of the Git diff. An unexpected manifest change must not be accepted silently.
-
-## Preprocessing Inspection
-
-Inspect the verified ResNet18 preprocessing contract for one image:
+### MVTec LOCO AD
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\inspect_preprocessing.py `
-    --image C:\path\to\mvtec-ad\bottle\train\good\000.png
+.\.venv\Scripts\python.exe .\scripts\validate_mvtec_loco_ad.py `
+    --dataset-root C:\path\to\mvtec-loco-ad `
+    --report .\validation-reports\mvtec-loco-ad.json
 ```
 
-The current feasibility configuration converts images to RGB and applies the transform associated with the default pretrained ResNet18 weights:
+### MVTec AD 2
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\validate_mvtec_ad_2.py `
+    --dataset-root C:\path\to\mvtec_ad_2 `
+    --report .\validation-reports\mvtec-ad-2.json
+```
+
+Validation reports contain resolved local paths and are intentionally ignored by Git.
+
+## Evaluate an MVTec AD Category
+
+Bottle at 224 × 224:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\evaluate_mvtec_ad_category.py `
+    --dataset-root C:\path\to\mvtec-ad `
+    --manifest .\configs\splits\mvtec-ad-bottle-seed-42.json `
+    --input-size 224 `
+    --memory-fraction 1.0 `
+    --sampling-seed 42
+```
+
+Capsule at 320 × 320:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\evaluate_mvtec_ad_category.py `
+    --dataset-root C:\path\to\mvtec-ad `
+    --manifest .\configs\splits\mvtec-ad-capsule-seed-42.json `
+    --input-size 320 `
+    --memory-fraction 1.0 `
+    --sampling-seed 42
+```
+
+Exact nearest-neighbor evaluation on CPU can take several minutes, especially with the complete 320 × 320 feature memory.
+
+## Export a Model Artifact
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\export_mvtec_ad_model.py `
+    --dataset-root C:\path\to\mvtec-ad `
+    --manifest .\configs\splits\mvtec-ad-capsule-seed-42.json `
+    --output-directory .\outputs\model-artifacts\mvtec-ad-capsule-320 `
+    --input-size 320 `
+    --top-fraction 0.01 `
+    --memory-fraction 1.0 `
+    --sampling-seed 42
+```
+
+The artifact contains:
 
 ```text
-Resize to 256
-→ center crop to 224 × 224
-→ convert to a Float32 tensor
-→ normalize with ImageNet channel statistics
+metadata.json
+feature_memory.pt
 ```
 
-This remains an MVP preprocessing baseline. Higher input resolutions and alternative crop behavior require validation evidence before adoption.
+The current format is a versioned Python/PyTorch artifact, not yet a framework-neutral production package.
+
+## Predict One Image
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\predict_image.py `
+    --artifact .\outputs\model-artifacts\mvtec-ad-capsule-320 `
+    --image C:\path\to\image.png
+```
+
+The command prints the model configuration, anomaly score, threshold, decision, feature-memory shape, and relevant timings.
+
+## Visualization
+
+The project can convert the patch-score grid into a resized heatmap and overlay it on the input image. It supports:
+
+- per-image normalization for qualitative inspection;
+- threshold-based normalization for better cross-image comparison;
+- configurable heatmap opacity.
+
+Heatmaps are explanation aids. Pixel-level benchmark metrics against ground-truth masks are not yet implemented.
+
+## CI
+
+`.github/workflows/ci.yml` runs on pushes and pull requests targeting `main`. It:
+
+- installs Python 3.12;
+- installs pinned dependencies;
+- installs the project in editable mode;
+- compiles Python source files;
+- checks installed dependencies;
+- runs all unit tests.
+
+Dataset-dependent benchmarks and large artifact exports are intentionally excluded from CI because the licensed datasets and generated feature memories are not stored in the repository.
 
 ## Documentation
 
-- [Project Specification](docs/ProjectSpecification.md)
 - [Architecture Overview](docs/ArchitectureOverview.md)
+- [Dataset Documentation](docs/DatasetDocumentation.md)
 - [Development Status](docs/DevelopmentStatus.md)
 - [Model Development Strategy](docs/ModelDevelopmentStrategy.md)
-- [Dataset Documentation](docs/DatasetDocumentation.md)
+- [Project Specification](docs/ProjectSpecification.md)
+- [Commit Message Guidelines](COMMITS.md)
 
-Future documentation will include experiment reports, a User Guide, and a Model Card for a selected evaluated artifact.
+## Known Limitations
 
-## Current Limitations
-
-- No anomaly-detection model has been fitted.
-- No baseline or PatchCore evaluation result exists.
-- The current ONNX artifact is a generated feature-extraction feasibility artifact, not a released anomaly model.
-- Only CPU-based local PyTorch execution has been verified.
-- The initial preprocessing resolution may lose small visual defects.
-- No ASP.NET Core backend has been implemented.
-- No React web client has been implemented.
-- No WPF desktop client has been implemented.
-- Dataset screenshot and dataset-derived artifact redistribution remain under review.
-- The project has not been validated for production, safety-critical, pharmaceutical, or regulatory use.
+- current benchmark results are exploratory because test images were inspected during development;
+- pixel-level localization metrics are not implemented;
+- exact nearest-neighbor search is computationally and memory intensive;
+- the current artifact uses PyTorch tensor serialization;
+- artifact metadata does not yet fully describe every preprocessing operation;
+- the selected 320 × 320 pipeline still requires updated ONNX export and parity verification;
+- one category-specific artifact must not be assumed to generalize to another category;
+- no backend, web client, or desktop client exists yet;
+- the system is not certified for production quality-control decisions.
 
 ## Roadmap
 
-- persist machine-readable dataset-validation reports;
-- visually inspect the resized and cropped model input;
-- refactor the technical spike into testable modules;
-- implement deterministic preprocessing backed by the split manifest;
-- implement and evaluate a simple baseline;
-- implement the initial PatchCore-style Memory Bank;
-- define thresholding from normal validation scores;
-- conduct a locked final MVTec AD `bottle` evaluation;
-- export and version the selected artifact package;
-- validate Python, ONNX Runtime, and .NET inference parity;
-- implement the inference backend;
+- evaluate at least one MVTec AD category beyond Bottle and Capsule;
+- implement pixel-level localization metrics;
+- define an evaluation protocol that does not tune on inspected test data;
+- investigate principled feature-memory reduction and faster nearest-neighbor search;
+- complete portable artifact and 320 × 320 ONNX parity work;
+- implement the ASP.NET Core inference backend;
 - implement separate web and desktop clients;
-- add automated tests, CI, screenshots, and release documentation.
+- add a Model Card and release documentation.
+
+## Dataset and Artifact Policy
+
+The MVTec datasets are published under CC BY-NC-SA 4.0 and restrict commercial use. Original images, masks, screenshots, extracted subsets, feature memories, and model artifacts are not published by this repository unless their redistribution has been reviewed separately.
 
 ## Responsible Use
 
-This project is an educational and portfolio-oriented demonstration. It must not be represented as a certified quality-control system and must not make autonomous production acceptance, safety, or regulatory decisions.
+This project is an experimental educational demonstration. It must not be represented as a certified inspection system or used autonomously for production acceptance, safety, medical, or regulatory decisions.
 
-## License
+## Repository License
 
-No repository license has been selected yet. Until a license is added, default copyright restrictions apply to the source code. Third-party datasets, pretrained weights, libraries, and generated artifacts remain subject to their own licenses and terms.
+No source-code license has been selected yet. Until a license is added, default copyright restrictions apply to the repository source. Datasets, pretrained weights, dependencies, and generated artifacts remain subject to their own licenses and terms.
