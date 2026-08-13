@@ -318,6 +318,23 @@ class AnomalyScoringTests(unittest.TestCase):
             places=6,
         )
 
+    def test_custom_patch_grid_size_is_supported_for_batches(self) -> None:
+        patch_scores, image_paths = compute_patch_scores_for_batches(
+            [
+                (
+                    torch.tensor([[1.0]]),
+                    ["image-001.png"],
+                )
+            ],
+            FakeEmbeddingExtractor(),
+            torch.tensor([[0.0]]),
+            memory_chunk_size=1,
+            patch_grid_size=(16, 49),
+        )
+
+        self.assertEqual((1, 16, 49), tuple(patch_scores.shape))
+        self.assertEqual(("image-001.png",), image_paths)    
+
 
 if __name__ == "__main__":
     unittest.main()

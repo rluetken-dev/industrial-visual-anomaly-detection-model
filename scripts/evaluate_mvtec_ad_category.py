@@ -25,21 +25,22 @@ from industrial_visual_anomaly_detection.models import (
     create_resnet18_patch_embedding_extractor,
 )
 from industrial_visual_anomaly_detection.preprocessing import (
-    create_bottle_preprocessing as create_preprocessing,
+    create_image_preprocessing,
 )
 
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser(
         description=(
-            "Compare maximum and top-patch mean aggregation for the "
-            "MVTec AD Bottle baseline."
+            "Compare maximum and top-patch mean aggregation "
+            "for one MVTec AD category."
         )
     )
     parser.add_argument("--dataset-root", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--memory-chunk-size", type=int, default=4096)
+    parser.add_argument("--input-size", type=int, default=224)
     return parser.parse_args()
 
 
@@ -171,6 +172,18 @@ def main() -> None:
     if arguments.memory_chunk_size <= 0:
         raise ValueError("Memory chunk size must be greater than zero.")
 
+    if arguments.input_size <= 0:
+        raise ValueError("Input size must be greater than zero.")
+
+    if arguments.input_size % 32 != 0:
+        raise ValueError("Input size must be divisible by 32.")
+
+    patch_grid_side = arguments.input_size // 8
+    patch_grid_size = (
+        patch_grid_side,
+        patch_grid_side,
+    )
+
     manifest = load_split_manifest(arguments.manifest)
     validate_split_manifest(manifest)
 
@@ -193,7 +206,12 @@ def main() -> None:
         image.path for image in labeled_test_images
     )
 
-    preprocessing = create_preprocessing()
+    preprocessing = create_image_preprocessing(
+        input_size=(
+            arguments.input_size,
+            arguments.input_size,
+        )
+    )
 
     fitting_dataset = ImagePathDataset(
         fitting_paths,
@@ -245,6 +263,7 @@ def main() -> None:
             embedding_extractor,
             feature_memory,
             memory_chunk_size=arguments.memory_chunk_size,
+            patch_grid_size=patch_grid_size,
         )
     )
     validation_seconds = time.perf_counter() - validation_start
@@ -265,6 +284,7 @@ def main() -> None:
             embedding_extractor,
             feature_memory,
             memory_chunk_size=arguments.memory_chunk_size,
+            patch_grid_size=patch_grid_size,
         )
     )
     test_seconds = time.perf_counter() - test_start
@@ -315,6 +335,11 @@ def main() -> None:
 
     print(f"Dataset: {manifest.dataset}")
     print(f"Category: {manifest.category}")
+    print(
+        f"Input size: {arguments.input_size} x "
+        f"{arguments.input_size}"
+    )
+    print(f"Patch grid size: {patch_grid_size}")
     print(f"Fitting images: {len(fitting_dataset)}")
     print(f"Validation images: {len(validation_dataset)}")
     print(f"Test images: {len(test_dataset)}")
@@ -328,8 +353,8 @@ def main() -> None:
     print(f"Test scoring time: {test_seconds:.2f} seconds")
     print()
     print(
-        "Note: This is an exploratory comparison because the test "
-        "partition has already been inspected during baseline analysis."
+        "Note: Aggregation comparisons are exploratory. Input-size "
+        "comparisons must be interpreted as follow-up experiments."
     )
 
     for name, validation_scores in validation_score_rules.items():
@@ -345,4 +370,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
