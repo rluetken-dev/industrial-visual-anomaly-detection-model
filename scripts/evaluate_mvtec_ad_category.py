@@ -1,4 +1,4 @@
-import time
+﻿import time
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
@@ -25,7 +25,7 @@ from industrial_visual_anomaly_detection.models import (
     create_resnet18_patch_embedding_extractor,
 )
 from industrial_visual_anomaly_detection.preprocessing import (
-    create_bottle_preprocessing,
+    create_bottle_preprocessing as create_preprocessing,
 )
 
 
@@ -193,7 +193,7 @@ def main() -> None:
         image.path for image in labeled_test_images
     )
 
-    preprocessing = create_bottle_preprocessing()
+    preprocessing = create_preprocessing()
 
     fitting_dataset = ImagePathDataset(
         fitting_paths,
@@ -345,3 +345,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
