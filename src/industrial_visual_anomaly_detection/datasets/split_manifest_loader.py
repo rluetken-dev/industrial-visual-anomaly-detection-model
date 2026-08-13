@@ -1,5 +1,5 @@
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from .split_manifest import DatasetSplitManifest
 
@@ -45,7 +45,12 @@ def validate_split_manifest(manifest: DatasetSplitManifest) -> None:
 
     all_paths = fitting_paths | validation_paths
 
-    if any(path.is_absolute() for path in all_paths):
+    if any(
+        path.is_absolute()
+        or PurePosixPath(path.as_posix()).is_absolute()
+        or PureWindowsPath(str(path)).is_absolute()
+        for path in all_paths
+    ):
         errors.append("Manifest image paths must be relative.")
 
     if any(".." in path.parts for path in all_paths):
