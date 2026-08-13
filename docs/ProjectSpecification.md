@@ -71,7 +71,8 @@ The following foundation has already been verified:
 - multi-scale patch-embedding construction;
 - provisional ONNX export and structural validation;
 - PyTorch/ONNX Runtime numerical parity on an artificial reference tensor;
-- execution of the selected TorchVision preprocessing on a real Bottle image;
+- technical and visual verification of direct 224 × 224 Bottle preprocessing on normal and anomalous images;
+- selection of direct resizing over the default TorchVision center-crop pipeline to preserve the complete bottle boundary;
 - acquisition and validation of MVTec AD, MVTec LOCO AD, and MVTec AD 2;
 - optional schema-versioned JSON reporting from all three dataset validators;
 - category-specific MVTec LOCO AD mask-value validation using `defects_config.json`;
@@ -198,13 +199,15 @@ Regardless of repository layout, clients must consume inference through defined 
 ### Image Preprocessing
 
 - **FR-PRE-001:** The system must convert supported source images into the tensor format expected by the selected model configuration.
-- **FR-PRE-002:** Preprocessing must define image decoding, color conversion, resizing, cropping, interpolation, scaling, channel order, normalization, data type, and final tensor shape.
+- **FR-PRE-002:** Preprocessing must define image decoding, color conversion, resizing, crop behavior including the explicit absence of cropping, interpolation, scaling, channel order, normalization, data type, and final tensor shape.
 - **FR-PRE-003:** Fitting, validation, and final-evaluation preprocessing must be deterministic.
 - **FR-PRE-004:** Equivalent input images must produce numerically compatible model inputs across validated Python and future .NET inference paths.
 - **FR-PRE-005:** Optional augmentation must be configured separately from deterministic evaluation preprocessing.
 - **FR-PRE-006:** Normal-data augmentation must not intentionally transform a normal sample into an apparent defect.
-- **FR-PRE-007:** The first baseline must use the default pretrained ResNet18 transform with RGB conversion, resize to 256, 224 × 224 center crop, bilinear interpolation, `float32` tensor conversion, and the expected ImageNet normalization.
-- **FR-PRE-008:** A visual preprocessing check must preserve or generate comparable original, resized, and cropped images before the preprocessing contract is finalized.
+- **FR-PRE-007:** The first MVTec AD Bottle baseline must use RGB conversion, direct resizing to 224 × 224 pixels, bilinear interpolation with antialiasing, `float32` tensor conversion in channel-first order, and the ImageNet normalization expected by the pretrained ResNet18 weights.
+- **FR-PRE-008:** The preprocessing inspection workflow must be able to preserve or generate comparable original, default TorchVision-resized, center-cropped, and directly resized images so that preprocessing decisions can be reviewed visually.
+- **FR-PRE-009:** The first Bottle baseline must not apply center cropping in its selected fitting, validation, evaluation, or inference preprocessing path.
+- **FR-PRE-010:** Preprocessing for later non-square categories must be evaluated separately before it becomes a stable category contract.
 
 ### Model Development
 
@@ -370,7 +373,7 @@ Exact latency and memory acceptance limits remain open until the complete first 
 
 - **AC-MOD-001:** MVTec AD Bottle passes the implemented automated dataset validations.
 - **AC-MOD-002:** The 167/42 split manifest is loaded and verified without overlap or missing source membership.
-- **AC-MOD-003:** The preprocessing pipeline produces the documented 224 × 224 normalized tensor and passes visual crop inspection.
+- **AC-MOD-003:** The selected Bottle preprocessing produces the documented 224 × 224 normalized tensor, preserves the complete bottle boundary in visual inspection, and applies no center crop.
 - **AC-MOD-004:** The PatchCore-style baseline builds a reproducible feature memory from the 167 fitting images.
 - **AC-MOD-005:** The baseline produces reproducible patch-level and image-level anomaly scores.
 - **AC-MOD-006:** A threshold is selected from documented normal-validation evidence without using final test labels.
@@ -416,7 +419,7 @@ Exact latency and memory acceptance limits remain open until the complete first 
 
 The following decisions remain intentionally open:
 
-- final visual approval of the center-crop behavior;
+- preprocessing strategies for later non-square categories;
 - PatchCore feature-aggregation refinements;
 - whether coreset reduction is required;
 - coreset algorithm and ratio;
@@ -442,7 +445,8 @@ Each remaining decision must be resolved through documented evidence or an archi
 
 At the time of writing:
 
-- the selected preprocessing has been executed on a real Bottle image, but its center crop has not yet been visually approved;
+- direct 224 × 224 preprocessing has been verified for the square MVTec AD Bottle category, but very small defects may lose detail during downscaling;
+- preprocessing has not yet been selected or verified for later non-square categories;
 - the feature extractor and ONNX boundary have been verified, but no anomaly feature memory has been fitted;
 - no anomaly scoring implementation exists;
 - no threshold has been selected;

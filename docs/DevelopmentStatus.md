@@ -179,26 +179,32 @@ These differences are sufficiently small for the technical proof of concept. The
 
 ## Verified Preprocessing
 
-The preprocessing transform associated with the default pretrained ResNet18 weights has been executed successfully on a real MVTec AD bottle image.
+The preprocessing strategy for the initial MVTec AD Bottle baseline has been verified technically and visually on normal and anomalous images.
 
-The inspected source image had the following properties:
-
-| Property | Value |
-| --- | --- |
-| Original mode | RGB |
-| Original size | 900 × 900 pixels |
-| Resulting tensor shape | `(3, 224, 224)` |
-| Tensor data type | `torch.float32` |
-
-The verified transformation applies:
+All 355 PNG files associated with the Bottle category use a square resolution of 900 × 900 pixels. The selected preprocessing pipeline therefore performs:
 
 - conversion to RGB;
-- resizing to 256 pixels according to the TorchVision preset;
-- a 224 × 224 center crop;
-- bilinear interpolation;
-- normalization with the ImageNet mean and standard deviation expected by the pretrained weights.
+- direct resizing from 900 × 900 to 224 × 224 pixels;
+- bilinear interpolation with antialiasing;
+- conversion to a PyTorch tensor;
+- normalization with the ImageNet mean and standard deviation expected by the pretrained ResNet18 weights.
 
-The script confirms the technical preprocessing path. A visual review of the resulting crop must still be added before the preprocessing contract is finalized.
+The selected pipeline is:
+
+```text
+RGB image
+→ direct resize to 224 × 224
+→ tensor conversion
+→ ImageNet normalization
+```
+
+The default TorchVision preprocessing, which first resizes the image to 256 × 256 pixels and then applies a 224 × 224 center crop, was evaluated visually as an alternative.
+
+The comparison showed that direct resizing preserves the complete bottle, including its outer rim and surrounding background. Center cropping removes part of this outer image area. Because anomalies may occur near the object boundary, direct resizing was selected for the first Bottle baseline.
+
+No aspect-ratio distortion is introduced for the Bottle category because all inspected source images are square.
+
+The inspection script can save the original image, the TorchVision-resized image, the center-cropped image, and the directly resized 224 × 224 image for comparison. Generated inspection images are stored below outputs/ and are excluded from Git.
 
 ## Dataset Storage
 
@@ -485,7 +491,7 @@ The metadata should identify at least:
 
 The following decisions remain open:
 
-- Which visual crop inspection method should be added to verify center cropping?
+- Should later non-square categories use aspect-ratio-preserving resizing, padding, or category-specific preprocessing?
 - Should the baseline use all fitting embeddings or a reduced coreset?
 - Which coreset selection method and sampling ratio should be used if reduction is enabled?
 - Which nearest-neighbor implementation should be used during Python development?
@@ -519,20 +525,19 @@ The following work is intentionally deferred until the first Python anomaly base
 
 The next implementation steps are:
 
-1. Add a visual preprocessing inspection that saves the original, resized, and cropped Bottle image for comparison.
-2. Refactor the technical feature extractor from `environment_check.py` into reusable Python modules.
-3. Implement deterministic loading of the Bottle fitting and validation partitions from the split manifest.
-4. Add automated tests for dataset report generation and schema contents.
-5. Extract patch embeddings for the 167 fitting images.
-6. Build the first normal feature memory.
-7. Measure feature-memory size and exact nearest-neighbor runtime.
-8. Implement nearest-neighbor anomaly scoring.
-9. Score the 42 normal validation images and define the first threshold method.
-10. Evaluate the baseline on the official Bottle test partition.
-11. Generate image-level metrics, anomaly maps, and representative result visualizations.
-12. Record the experiment configuration and results reproducibly.
+1. Refactor the technical feature extractor from `environment_check.py` into reusable Python modules.
+2. Implement deterministic loading of the Bottle fitting and validation partitions from the split manifest.
+3. Add automated tests for dataset report generation and schema contents.
+4. Extract patch embeddings for the 167 fitting images.
+5. Build the first normal feature memory.
+6. Measure feature-memory size and exact nearest-neighbor runtime.
+7. Implement nearest-neighbor anomaly scoring.
+8. Score the 42 normal validation images and define the first threshold method.
+9. Evaluate the baseline on the official Bottle test partition.
+10. Generate image-level metrics, anomaly maps, and representative result visualizations.
+11. Record the experiment configuration and results reproducibly.
 
-The machine-readable dataset-report milestone is complete. The visual preprocessing inspection is the next active implementation step.
+The machine-readable dataset-report and Bottle preprocessing-inspection milestones are complete. Refactoring the technical feature extractor into reusable Python modules is the next active implementation step.
 
 ## Last Verified Status
 
@@ -545,7 +550,8 @@ As of 2026-08-13:
 - intermediate multi-scale features and patch embeddings can be extracted;
 - the provisional feature extractor exports successfully to ONNX;
 - ONNX Runtime reproduces the PyTorch feature outputs with very small numerical differences;
-- the pretrained TorchVision preprocessing transform runs successfully on a real bottle image;
+- direct 224 × 224 Bottle preprocessing has been verified technically and visually on normal and anomalous images;
+- direct resizing was selected over the default center-crop pipeline to preserve the complete bottle boundary;
 - MVTec AD, MVTec LOCO AD, and MVTec AD 2 are downloaded and stored outside the repository;
 - the archive checksums are recorded;
 - all three dataset validators can generate schema-versioned JSON reports after successful validation;
@@ -559,4 +565,4 @@ As of 2026-08-13:
 - no production model artifact has been released;
 - no .NET backend or user-facing client has been implemented.
 
-The project has therefore completed environment verification, technical feature-extraction feasibility, dataset acquisition, dataset validation, machine-readable validation reporting, initial category selection, and deterministic split preparation. The next active milestone is visual verification of the selected Bottle preprocessing before the reusable anomaly-detection modules are implemented.
+The project has therefore completed environment verification, technical feature-extraction feasibility, dataset acquisition, dataset validation, machine-readable validation reporting, initial category selection, deterministic split preparation, and visual verification of the selected Bottle preprocessing. The next active milestone is extracting the provisional feature extractor into reusable anomaly-detection modules.

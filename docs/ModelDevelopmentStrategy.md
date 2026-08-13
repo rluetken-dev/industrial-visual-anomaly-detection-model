@@ -39,7 +39,8 @@ The current technical and dataset work has verified:
 - close numerical agreement between PyTorch and ONNX outputs;
 - sufficient local CPU performance for continued proof-of-concept development;
 - dataset structure, inventory, readability, and available mask validation for MVTec AD, MVTec LOCO AD, and MVTec AD 2;
-- deterministic preprocessing of a real MVTec AD bottle image;
+- deterministic direct 224 × 224 preprocessing of real normal and anomalous MVTec AD Bottle images;
+- visual comparison of direct resizing with the default TorchVision center-crop pipeline;
 - deterministic creation of the initial Bottle fitting and validation split;
 - complete split coverage with no overlap.
 
@@ -73,6 +74,7 @@ The first anomaly-detection baseline uses:
 | Backbone | ResNet18 with default pretrained TorchVision weights |
 | Feature layers | `layer2` and `layer3` |
 | Input size | 224 × 224 pixels |
+| Preprocessing | RGB conversion, direct 224 × 224 bilinear resize with antialiasing, tensor conversion, and ImageNet normalization |
 | Backbone training | Frozen for the first baseline |
 | Model family | PatchCore-style feature-memory approach |
 
@@ -112,7 +114,7 @@ Dataset qualification                         completed
         ↓
 Data pipeline and split validation             completed
         ↓
-Real-image preprocessing verification          partially completed
+Real-image preprocessing verification          completed
         ↓
 Reusable feature-extraction modules            next
         ↓
@@ -223,13 +225,12 @@ Synthetic validation anomalies are not required for the first implementation. If
 
 Preprocessing must be deterministic during fitting, validation, and final evaluation.
 
-The selected initial preprocessing is the transform associated with the default pretrained ResNet18 weights:
+The selected preprocessing for the initial MVTec AD Bottle baseline is:
 
 - decode the input image;
 - convert it to RGB;
-- resize it to 256 pixels according to the TorchVision preset;
-- apply a 224 × 224 center crop;
-- use bilinear interpolation;
+- resize it directly to 224 × 224 pixels;
+- use bilinear interpolation with antialiasing;
 - convert it to a `torch.float32` tensor;
 - preserve channel-first ordering;
 - normalize it with the ImageNet mean and standard deviation expected by the pretrained weights.
@@ -240,9 +241,13 @@ The resulting single-image tensor shape is:
 [1, 3, 224, 224]
 ```
 
-This transformation has been executed successfully on a real 900 × 900 RGB Bottle image.
+This transformation has been executed successfully on normal and anomalous 900 × 900 RGB Bottle images.
 
-A visual comparison of the original, resized, and cropped image must still be saved and inspected. This is important because center cropping may remove edge information relevant to anomaly detection.
+The default TorchVision preprocessing pipeline, which first resizes to 256 × 256 pixels and then applies a 224 × 224 center crop, was inspected as an alternative. Direct resizing was selected because it preserves the complete bottle boundary and surrounding background, while center cropping removes part of the outer image area.
+
+All 355 PNG files associated with the Bottle category are square at 900 × 900 pixels. Direct resizing therefore introduces no aspect-ratio distortion for this category. Later non-square categories must be evaluated separately and may require aspect-ratio-preserving resizing, padding, or category-specific preprocessing.
+
+The inspection script retains both variants for comparison, but only direct 224 × 224 resizing belongs to the selected first-baseline preprocessing contract.
 
 No random augmentation is used in the first baseline. If augmentation is investigated later, it must:
 
@@ -521,7 +526,8 @@ Quantitative metrics must be supplemented with visual review of:
 - false negatives;
 - accurately localized defects;
 - diffuse or misplaced anomaly maps;
-- edge defects affected by center cropping;
+- very small defects whose visibility may be reduced by resizing;
+- defects near the bottle boundary;
 - the strongest and weakest examples per defect group.
 
 Qualitative examples must be selected transparently and must not imply that a few favorable images represent complete model behavior.
@@ -706,26 +712,26 @@ The following preparation steps are complete:
 7. Download, checksum, extract, inspect, and validate all three MVTec datasets.
 8. Select MVTec AD Bottle for the first baseline.
 9. Create and validate the deterministic 167/42 split with seed `42`.
-10. Execute the selected preprocessing transform on a real Bottle image.
+10. Compare the default center-crop pipeline with direct 224 × 224 resizing on normal and anomalous Bottle images.
 11. Add optional schema-versioned JSON reporting to all three dataset validators.
 12. Validate MVTec LOCO AD masks against the category-specific pixel values defined in `defects_config.json`.
+13. Select direct 224 × 224 resizing as the initial Bottle preprocessing contract.
 
 ## Immediate Next Steps
 
 The next steps are:
 
-1. Save and inspect the original, resized, and cropped Bottle image.
-2. Refactor the technical feature extractor into reusable, testable modules.
-3. Implement deterministic loading from the Bottle split manifest.
-4. Add automated tests for dataset report generation and schema contents.
-5. Extract embeddings for the 167 fitting images.
-6. Build the complete initial feature memory without coreset reduction.
-7. Measure extraction duration, memory size, serialization size, and exact-search runtime.
-8. Implement patch-level and image-level anomaly scoring.
-9. Score the 42 normal validation images and lock the first threshold method.
-10. Evaluate the unchanged baseline on the official Bottle test partition.
-11. Generate metrics, anomaly maps, qualitative examples, and a reproducible experiment report.
-12. Evaluate coreset reduction only after the complete-memory baseline is understood.
+1. Refactor the technical feature extractor into reusable, testable modules.
+2. Implement deterministic loading from the Bottle split manifest.
+3. Add automated tests for dataset report generation and schema contents.
+4. Extract embeddings for the 167 fitting images.
+5. Build the complete initial feature memory without coreset reduction.
+6. Measure extraction duration, memory size, serialization size, and exact-search runtime.
+7. Implement patch-level and image-level anomaly scoring.
+8. Score the 42 normal validation images and lock the first threshold method.
+9. Evaluate the unchanged baseline on the official Bottle test partition.
+10. Generate metrics, anomaly maps, qualitative examples, and a reproducible experiment report.
+11. Evaluate coreset reduction only after the complete-memory baseline is understood.
 
 Only the first pending step should be started next so that each implementation decision remains understandable and verifiable.
 

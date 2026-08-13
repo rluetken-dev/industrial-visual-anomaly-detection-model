@@ -35,7 +35,8 @@ The document uses three status categories:
 - ONNX Runtime reproduces the PyTorch feature outputs with very small numerical differences.
 - Local CPU performance is sufficient for continued proof-of-concept development.
 - MVTec AD, MVTec LOCO AD, and MVTec AD 2 have been downloaded, extracted, inspected, and validated.
-- The pretrained TorchVision preprocessing transform has been executed successfully on a real MVTec AD bottle image.
+- Direct 224 × 224 Bottle preprocessing has been verified technically and visually on normal and anomalous images.
+- Direct resizing was selected over the default center-crop pipeline to preserve the complete bottle boundary.
 - MVTec AD `bottle` has been selected as the first implementation category.
 - The 209 normal bottle training images have been split deterministically into 167 fitting and 42 normal validation images using seed `42`.
 - The split manifest is versioned and contains no overlap.
@@ -56,7 +57,7 @@ The document uses three status categories:
 
 ### Open
 
-- visual confirmation of the resize and center-crop behavior;
+- preprocessing strategies for later non-square categories;
 - final patch-embedding aggregation details;
 - whether the first Memory Bank uses all embeddings or a reduced coreset;
 - coreset selection algorithm and sampling ratio;
@@ -304,17 +305,28 @@ The repository contains documentation, checksums, scripts, and split manifests, 
 
 Fitting and runtime preprocessing must be equivalent.
 
-The initial verified TorchVision preprocessing performs:
+The selected preprocessing contract for the initial MVTec AD Bottle baseline performs:
 
 - image decoding;
 - RGB conversion;
-- resizing to 256 pixels according to the pretrained weight preset;
-- a 224 × 224 center crop;
+- direct resizing to 224 × 224 pixels;
+- bilinear interpolation with antialiasing;
 - conversion to a floating-point tensor;
-- ImageNet normalization using the pretrained weights' mean and standard deviation;
-- bilinear interpolation.
+- ImageNet normalization using the mean and standard deviation expected by the pretrained ResNet18 weights.
 
-The transformation has been executed on a real bottle image. A saved visual comparison of the original, resized, and cropped image is still required before the preprocessing contract is finalized.
+The resulting tensor shape is:
+
+```text
+(3, 224, 224)
+```
+
+The default TorchVision pipeline, which resizes to 256 × 256 pixels and then applies a 224 × 224 center crop, was evaluated visually as an alternative.
+
+Direct resizing was selected because it preserves the complete bottle boundary and surrounding background. Center cropping removes part of the outer image area and could therefore discard defects near the object boundary.
+
+All inspected MVTec AD Bottle images are square at 900 × 900 pixels. Direct resizing therefore introduces no aspect-ratio distortion for the selected first category.
+
+The inspection script retains both preprocessing variants for visual comparison, but only direct 224 × 224 resizing is selected for the initial Bottle model pipeline.
 
 Every preprocessing decision required for inference must later be represented in exported metadata and reproduced by the .NET runtime.
 
@@ -744,7 +756,8 @@ Deployment design must follow evaluated model behavior rather than being finaliz
 - A full PatchCore Memory Bank may become large.
 - CPU nearest-neighbor search may become a bottleneck.
 - Incorrect preprocessing parity can invalidate cross-runtime results.
-- Center cropping may remove relevant edge defects.
+- Direct resizing to 224 × 224 may reduce the visibility of very small defects.
+- Later non-square categories may require padding, aspect-ratio-preserving resizing, or category-specific preprocessing.
 - Threshold selection can leak test information if validation is not isolated.
 - ONNX may not represent the complete anomaly pipeline conveniently.
 - Model updates may break older runtimes without artifact schema versioning.
@@ -781,28 +794,28 @@ The following steps have been completed:
 7. Validate dataset structures, inventories, image readability, and available masks.
 8. Select MVTec AD bottle as the first category.
 9. Create and verify the deterministic 167/42 bottle split.
-10. Execute the pretrained preprocessing transform on a real bottle image.
+10. Compare the default center-crop pipeline with direct 224 × 224 resizing on normal and anomalous Bottle images.
 11. Add schema-versioned JSON reporting to all three dataset validators.
 12. Correct MVTec LOCO AD mask validation to use category-specific values from `defects_config.json`.
+13. Select direct 224 × 224 resizing as the initial Bottle preprocessing contract.
 
 ## Immediate Architectural Validation Steps
 
 The next steps should be performed in this order:
 
-1. Save and inspect the original, resized, and cropped Bottle image.
-2. Refactor the Python technical spike into reusable, testable modules.
-3. Load the Bottle partitions through the deterministic split manifest.
-4. Add automated tests for dataset report generation and schema contents.
-5. Build and measure the first normal feature memory.
-6. Implement and verify nearest-neighbor anomaly scoring.
-7. Select a threshold using only normal validation scores.
-8. Evaluate the baseline on the official Bottle test partition.
-9. Define the first artifact metadata schema from the evaluated implementation.
-10. Package the ONNX model, feature memory, metadata, threshold, and evaluation summary.
-11. Create a minimal .NET console spike that loads the package.
-12. Verify Python/.NET preprocessing and scoring parity.
-13. Finalize backend repository structure and implement the ASP.NET Core API.
-14. Add web and desktop clients only after the backend contract is stable.
+1. Refactor the Python technical spike into reusable, testable modules.
+2. Load the Bottle partitions through the deterministic split manifest.
+3. Add automated tests for dataset report generation and schema contents.
+4. Build and measure the first normal feature memory.
+5. Implement and verify nearest-neighbor anomaly scoring.
+6. Select a threshold using only normal validation scores.
+7. Evaluate the baseline on the official Bottle test partition.
+8. Define the first artifact metadata schema from the evaluated implementation.
+9. Package the ONNX model, feature memory, metadata, threshold, and evaluation summary.
+10. Create a minimal .NET console spike that loads the package.
+11. Verify Python/.NET preprocessing and scoring parity.
+12. Finalize backend repository structure and implement the ASP.NET Core API.
+13. Add web and desktop clients only after the backend contract is stable.
 
 ## Related Documentation
 
