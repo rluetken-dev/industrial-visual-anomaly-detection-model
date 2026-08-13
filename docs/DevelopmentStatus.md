@@ -254,7 +254,7 @@ All expected categories and directory structures are present. All PNG files are 
 | Mask files | 1,246 |
 | Total PNG files | 4,897 |
 
-All PNG files are readable, and the available anomaly masks passed validation.
+All PNG files are readable. All 993 anomalous test images have matching non-empty mask groups, and all 1,246 mask files passed validation. Positive mask values are validated against the category-specific definitions in `defects_config.json` rather than being treated as universally binary.
 
 The local extracted image count differs from a published aggregate count by seven images. The difference is isolated to `splicing_connectors`, whose local training and validation folders contain six and one additional images respectively. The local archive checksum is recorded, and no files have been removed to force agreement with an external count.
 
@@ -277,6 +277,23 @@ The local extracted image count differs from a published aggregate count by seve
 All PNG files are readable. All 705 public anomalous images have matching masks, and the public image-mask pairs passed content validation.
 
 Ground truth for the private test partitions is not included locally. Evaluation of those partitions would require the official external evaluation mechanism and is not part of the initial baseline.
+
+## Machine-Readable Dataset Reports
+
+All three dataset validators now support an optional `--report` argument and can write schema-versioned JSON reports after successful validation.
+
+The generated reports contain:
+
+- dataset identifier and resolved local root;
+- discovered categories;
+- per-category and aggregate inventories;
+- image dimensions and modes;
+- validated mask, mask-group, or image-mask pair counts;
+- individual validation-stage results.
+
+The reports currently use schema version `1`. They are written only after every implemented validation stage passes. Failed validation terminates without producing a misleading successful report.
+
+Generated files are stored under `validation-reports/`, contain machine-specific local paths, and are excluded from Git.
 
 ## Selected Initial Dataset and Category
 
@@ -425,9 +442,9 @@ requirements.txt
 The scripts currently provide:
 
 - technical feature-extractor and ONNX checks;
-- MVTec AD validation;
-- MVTec LOCO AD validation;
-- MVTec AD 2 validation;
+- MVTec AD validation with optional JSON reporting;
+- MVTec LOCO AD validation with category-specific mask-value checks and optional JSON reporting;
+- MVTec AD 2 validation with optional JSON reporting;
 - deterministic MVTec AD training splits;
 - preprocessing inspection for individual images.
 
@@ -502,23 +519,24 @@ The following work is intentionally deferred until the first Python anomaly base
 
 The next implementation steps are:
 
-1. Extend the dataset validators to write machine-readable JSON reports.
-2. Add a visual preprocessing inspection that saves the original, resized, and cropped bottle image for comparison.
-3. Refactor the technical feature extractor from `environment_check.py` into reusable Python modules.
-4. Implement deterministic loading of the bottle fitting and validation partitions from the split manifest.
+1. Add a visual preprocessing inspection that saves the original, resized, and cropped Bottle image for comparison.
+2. Refactor the technical feature extractor from `environment_check.py` into reusable Python modules.
+3. Implement deterministic loading of the Bottle fitting and validation partitions from the split manifest.
+4. Add automated tests for dataset report generation and schema contents.
 5. Extract patch embeddings for the 167 fitting images.
 6. Build the first normal feature memory.
-7. Implement nearest-neighbor anomaly scoring.
-8. Score the 42 normal validation images and define the first threshold method.
-9. Evaluate the baseline on the official bottle test partition.
-10. Generate image-level metrics, anomaly maps, and representative result visualizations.
-11. Record the experiment configuration and results reproducibly.
+7. Measure feature-memory size and exact nearest-neighbor runtime.
+8. Implement nearest-neighbor anomaly scoring.
+9. Score the 42 normal validation images and define the first threshold method.
+10. Evaluate the baseline on the official Bottle test partition.
+11. Generate image-level metrics, anomaly maps, and representative result visualizations.
+12. Record the experiment configuration and results reproducibly.
 
-Only the first step should be started next so that implementation and explanation remain incremental.
+The machine-readable dataset-report milestone is complete. The visual preprocessing inspection is the next active implementation step.
 
 ## Last Verified Status
 
-As of 2026-08-12:
+As of 2026-08-13:
 
 - the Python 3.12 virtual environment is operational;
 - pinned project dependencies are recorded;
@@ -530,7 +548,8 @@ As of 2026-08-12:
 - the pretrained TorchVision preprocessing transform runs successfully on a real bottle image;
 - MVTec AD, MVTec LOCO AD, and MVTec AD 2 are downloaded and stored outside the repository;
 - the archive checksums are recorded;
-- all three extracted datasets have passed their implemented structural, inventory, readability, and mask validations;
+- all three dataset validators can generate schema-versioned JSON reports after successful validation;
+- MVTec LOCO AD mask values are validated against each category's `defects_config.json`;
 - MVTec AD bottle is selected as the first implementation category;
 - the normal bottle training images have been split deterministically into 167 fitting and 42 validation images;
 - the split manifest is versioned and contains no overlap;
@@ -540,4 +559,4 @@ As of 2026-08-12:
 - no production model artifact has been released;
 - no .NET backend or user-facing client has been implemented.
 
-The project has therefore completed environment verification, technical feature-extraction feasibility, dataset acquisition, dataset validation, initial category selection, and deterministic split preparation. The next milestone is the first reproducible anomaly-detection baseline.
+The project has therefore completed environment verification, technical feature-extraction feasibility, dataset acquisition, dataset validation, machine-readable validation reporting, initial category selection, and deterministic split preparation. The next active milestone is visual verification of the selected Bottle preprocessing before the reusable anomaly-detection modules are implemented.

@@ -1,8 +1,8 @@
+import json
 from argparse import ArgumentParser, Namespace
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-
 from PIL import Image
 
 
@@ -44,6 +44,11 @@ class ImageValidationSummary:
 def parse_arguments() -> Namespace:
     parser = ArgumentParser(description="Validate a local MVTec AD dataset.")
     parser.add_argument("--dataset-root", required=True, type=Path)
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="Optional path for the generated JSON validation report.",
+    )
     return parser.parse_args()
 
 
@@ -203,6 +208,68 @@ def validate_mask_pairs(dataset_root: Path, categories: list[str]) -> int:
     return validated_pairs
 
 
+def create_report(
+    dataset_root: Path,
+    categories: list[str],
+    inventory: list[CategoryInventory],
+    image_summary: ImageValidationSummary,
+    validated_mask_pairs: int,
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "dataset": "mvtec-ad",
+        "dataset_root": str(dataset_root),
+        "status": "passed",
+        "categories": categories,
+        "inventory": [
+            {
+                "category": item.category,
+                "train_good": item.train_good,
+                "test_good": item.test_good,
+                "test_anomalous": item.test_anomalous,
+                "masks": item.masks,
+            }
+            for item in inventory
+        ],
+        "totals": {
+            "train_good": sum(item.train_good for item in inventory),
+            "test_good": sum(item.test_good for item in inventory),
+            "test_anomalous": sum(item.test_anomalous for item in inventory),
+            "masks": sum(item.masks for item in inventory),
+        },
+        "images": {
+            "file_count": image_summary.file_count,
+            "sizes": [
+                {
+                    "width": width,
+                    "height": height,
+                    "count": count,
+                }
+                for (width, height), count in image_summary.sizes.items()
+            ],
+            "modes": image_summary.modes,
+        },
+        "mask_pairs": {
+            "validated": validated_mask_pairs,
+        },
+        "validations": {
+            "structure": "passed",
+            "inventory": "passed",
+            "image_readability": "passed",
+            "masks": "passed",
+        },
+    }
+
+
+def write_report(report_path: Path, report: dict[str, object]) -> None:
+    resolved_report_path = report_path.resolve()
+    resolved_report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with resolved_report_path.open("w", encoding="utf-8") as report_file:
+        json.dump(report, report_file, indent=2, ensure_ascii=False)
+        report_file.write("\n")
+
+
 def main() -> None:
     arguments = parse_arguments()
     dataset_root = arguments.dataset_root.resolve()
@@ -222,6 +289,16 @@ def main() -> None:
     inventory = create_inventory(dataset_root, categories)
     image_summary = validate_image_files(dataset_root)
     validated_mask_pairs = validate_mask_pairs(dataset_root, categories)
+
+    if arguments.report is not None:
+        report = create_report(
+            dataset_root,
+            categories,
+            inventory,
+            image_summary,
+            validated_mask_pairs,
+        )
+        write_report(arguments.report, report)
 
     print(f"Dataset root: {dataset_root}")
     print(f"Categories: {len(categories)}")
@@ -254,6 +331,8 @@ def main() -> None:
     print("Image readability validation: passed")
     print(f"Validated image-mask pairs: {validated_mask_pairs}")
     print("Mask validation: passed")
+    if arguments.report is not None:
+        print(f"JSON report: {arguments.report.resolve()}")
 
 
 if __name__ == "__main__":

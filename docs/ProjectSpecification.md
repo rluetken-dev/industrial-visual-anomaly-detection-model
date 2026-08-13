@@ -73,6 +73,8 @@ The following foundation has already been verified:
 - PyTorch/ONNX Runtime numerical parity on an artificial reference tensor;
 - execution of the selected TorchVision preprocessing on a real Bottle image;
 - acquisition and validation of MVTec AD, MVTec LOCO AD, and MVTec AD 2;
+- optional schema-versioned JSON reporting from all three dataset validators;
+- category-specific MVTec LOCO AD mask-value validation using `defects_config.json`;
 - selection of MVTec AD Bottle as the first category;
 - deterministic division of 209 normal Bottle images into 167 fitting and 42 normal validation images using seed `42`;
 - zero overlap and complete coverage in the versioned split manifest.
@@ -462,4 +464,4 @@ At the time of writing:
 
 ## Last Updated
 
-This specification reflects the verified project state and selected first-baseline scope as of 2026-08-12.
+This specification reflects the verified project state and selected first-baseline scope as of 2026-08-13.

@@ -190,7 +190,7 @@ The Bottle split was separately checked for:
 - no overlap;
 - complete source coverage.
 
-The next validation improvement is to generate machine-readable JSON reports. Duplicate-content detection may also be added later. These improvements must not change the already recorded deterministic Bottle split silently.
+All three dataset validators can now generate schema-versioned JSON reports after successful validation. The reports remain ignored local output because they contain resolved machine-specific dataset paths. Duplicate-content detection may be added later and must not change the already recorded deterministic Bottle split silently.
 
 ## Data Partition Strategy
 
@@ -707,15 +707,17 @@ The following preparation steps are complete:
 8. Select MVTec AD Bottle for the first baseline.
 9. Create and validate the deterministic 167/42 split with seed `42`.
 10. Execute the selected preprocessing transform on a real Bottle image.
+11. Add optional schema-versioned JSON reporting to all three dataset validators.
+12. Validate MVTec LOCO AD masks against the category-specific pixel values defined in `defects_config.json`.
 
 ## Immediate Next Steps
 
 The next steps are:
 
-1. Extend the dataset validators with machine-readable JSON reports.
-2. Save and inspect the original, resized, and cropped Bottle image.
-3. Refactor the technical feature extractor into reusable, testable modules.
-4. Implement deterministic loading from the Bottle split manifest.
+1. Save and inspect the original, resized, and cropped Bottle image.
+2. Refactor the technical feature extractor into reusable, testable modules.
+3. Implement deterministic loading from the Bottle split manifest.
+4. Add automated tests for dataset report generation and schema contents.
 5. Extract embeddings for the 167 fitting images.
 6. Build the complete initial feature memory without coreset reduction.
 7. Measure extraction duration, memory size, serialization size, and exact-search runtime.
@@ -737,4 +739,4 @@ Only the first pending step should be started next so that each implementation d
 
 ## Last Updated
 
-This strategy reflects the verified project state and selected first-baseline decisions as of 2026-08-12.
+This strategy reflects the verified project state and selected first-baseline decisions as of 2026-08-13.

@@ -133,7 +133,7 @@ This document records engineering constraints and does not constitute legal advi
 - Distinct image sizes: 5.
 - Image sizes: 800 × 1,600, 1,600 × 1,100, 1,600 × 1,280, 1,700 × 850, and 1,700 × 1,000 pixels.
 - Image modes: 3,651 RGB files and 1,246 single-channel grayscale files.
-- Mask consistency: All 993 anomalous test images have matching non-empty mask groups; all 1,246 masks are readable, binary, single-channel, geometrically compatible, and contain anomaly pixels.
+- Mask consistency: All 993 anomalous test images have matching non-empty mask groups; all 1,246 masks are readable, single-channel, geometrically compatible, and contain anomaly pixels. Valid positive mask values are category-specific and are validated against each category's `defects_config.json`; the masks must not be assumed to use only the binary values 0 and 255.
 - Validation script: `scripts/validate_mvtec_loco_ad.py`.
 - Published-count discrepancy: The local archive contains seven additional normal `splicing_connectors` images compared with the statistical table cited in the dataset publication; the reason remains unconfirmed.
 
@@ -163,6 +163,41 @@ This document records engineering constraints and does not constitute legal advi
 - Mask consistency: All 705 public anomalous test images have matching, readable, binary single-channel masks with identical dimensions and at least one anomaly pixel.
 - Private evaluation limitation: Ground truth for private test data is not locally available; complete official evaluation requires the MVTec evaluation server.
 - Validation script: `scripts/validate_mvtec_ad_2.py`.
+
+## Machine-Readable Validation Reports
+
+All three dataset validators support an optional `--report` argument:
+
+```text
+scripts/validate_mvtec_ad.py
+scripts/validate_mvtec_loco_ad.py
+scripts/validate_mvtec_ad_2.py
+```
+
+When the configured validation completes successfully, the validator writes a formatted UTF-8 JSON report containing:
+
+- schema version;
+- dataset identifier;
+- resolved local dataset root;
+- validation status;
+- discovered categories;
+- per-category inventory;
+- aggregate inventory totals;
+- image counts, dimensions, and modes;
+- mask or mask-group validation counts;
+- individual validation-stage results.
+
+The reports currently use schema version `1` and are generated only after all implemented validation stages pass. A failed validation terminates the script without writing a misleading successful report.
+
+Example:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\validate_mvtec_ad.py `
+    --dataset-root C:\path\to\mvtec-ad `
+    --report .\validation-reports\mvtec-ad.json
+```
+
+Generated reports are local runtime output and are excluded through `.gitignore` under `validation-reports/`. They currently contain the resolved local dataset path and must not be committed without removing machine-specific information and reviewing the intended publication format.
 
 ## Repository And Local Storage Policy
 
@@ -247,7 +282,7 @@ Before a dataset may be used for fitting or evaluation, automated validation mus
 - mask geometry matches the corresponding image geometry or a documented mapping;
 - no selected source file occurs in more than one project-defined split;
 - no generated variant of one source image crosses split boundaries;
-- validation failures produce a machine-readable report and prevent affected workflows from continuing silently.
+- successful validation results can be written to a machine-readable report, while validation failures terminate the affected workflow with a clear error and do not produce a misleading successful report.
 
 Dataset-family-specific validators may be required because MVTec AD, MVTec LOCO AD, and MVTec AD 2 do not share one guaranteed directory contract.
 
@@ -501,16 +536,13 @@ No publication citation is treated as finalized in this document while dataset s
 
 ## Immediate Next Steps
 
-1. Complete all dataset downloads.
-2. Record archive filenames, sizes, acquisition dates, and locally calculated checksums.
-3. Extract each archive into a separate read-only source location.
-4. Inspect the top-level structures without modifying them.
-5. Implement a dataset-inventory command.
-6. Generate machine-readable inventory reports.
-7. Review representative normal images, anomalies, and masks locally.
-8. Compare candidate categories against the MVP selection criteria.
-9. Define and document the validation strategy.
-10. Record the selected family and category through an explicit decision.
+1. Use the JSON reports as reproducible local evidence for all three dataset validations.
+2. Decide whether future publishable reports should omit or relativize the local dataset root.
+3. Add automated tests for report generation and schema contents.
+4. Add duplicate-content detection where it provides useful split-safety evidence.
+5. Save and review the original, resized, and center-cropped Bottle preprocessing images.
+6. Keep the complete official Bottle test partition isolated from fitting and threshold selection.
+7. Review dataset and derived-artifact redistribution before publishing any visual examples or model artifacts.
 
 ## Related Documentation
 

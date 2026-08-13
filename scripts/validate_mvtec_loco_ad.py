@@ -1,3 +1,4 @@
+import json
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +48,11 @@ class ImageValidationSummary:
 def parse_arguments() -> Namespace:
     parser = ArgumentParser(description="Validate a local MVTec LOCO AD dataset.")
     parser.add_argument("--dataset-root", required=True, type=Path)
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="Optional path for the generated JSON validation report.",
+    )
     return parser.parse_args()
 
 
@@ -190,6 +196,30 @@ def validate_image_files(dataset_root: Path) -> ImageValidationSummary:
     )
 
 
+def load_defect_pixel_values(
+    dataset_root: Path,
+    category: str,
+) -> set[int]:
+    config_path = dataset_root / category / "defects_config.json"
+
+    with config_path.open(encoding="utf-8") as config_file:
+        defect_config = json.load(config_file)
+
+    pixel_values = {0}
+
+    for defect in defect_config:
+        pixel_value = defect.get("pixel_value")
+
+        if not isinstance(pixel_value, int) or not 1 <= pixel_value <= 255:
+            raise ValueError(
+                f"Invalid pixel value in {config_path}: {pixel_value}"
+            )
+
+        pixel_values.add(pixel_value)
+
+    return pixel_values
+
+
 def validate_mask_groups(dataset_root: Path, categories: list[str]) -> tuple[int, int]:
     errors: list[str] = []
     validated_groups = 0
@@ -197,6 +227,10 @@ def validate_mask_groups(dataset_root: Path, categories: list[str]) -> tuple[int
 
     for category in categories:
         category_root = dataset_root / category
+        allowed_mask_values = load_defect_pixel_values(
+            dataset_root,
+            category,
+        )
 
         for anomaly_type in ("logical_anomalies", "structural_anomalies"):
             test_root = category_root / "test" / anomaly_type
@@ -253,12 +287,16 @@ def validate_mask_groups(dataset_root: Path, categories: list[str]) -> tuple[int
                             for _, value in mask.getcolors(maxcolors=256) or []
                         }
 
-                        if not mask_values.issubset({0, 255}):
+                        if not mask_values.issubset(allowed_mask_values):
+                            unexpected_values = sorted(
+                                mask_values - allowed_mask_values
+                            )
                             errors.append(
-                                f"Non-binary mask values {mask_values}: {mask_path}"
+                                f"Unexpected mask values {unexpected_values}: "
+                                f"{mask_path}"
                             )
 
-                        if 255 not in mask_values:
+                        if not any(value != 0 for value in mask_values):
                             errors.append(
                                 f"Mask contains no anomaly pixels: {mask_path}"
                             )
@@ -271,6 +309,88 @@ def validate_mask_groups(dataset_root: Path, categories: list[str]) -> tuple[int
         raise ValueError("Mask validation failed:\n" + "\n".join(errors))
 
     return validated_groups, validated_masks
+
+
+def create_report(
+    dataset_root: Path,
+    categories: list[str],
+    inventory: list[CategoryInventory],
+    image_summary: ImageValidationSummary,
+    validated_mask_groups: int,
+    validated_masks: int,
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "dataset": "mvtec-loco-ad",
+        "dataset_root": str(dataset_root),
+        "status": "passed",
+        "categories": categories,
+        "inventory": [
+            {
+                "category": item.category,
+                "train_good": item.train_good,
+                "validation_good": item.validation_good,
+                "test_good": item.test_good,
+                "test_logical": item.test_logical,
+                "test_structural": item.test_structural,
+                "logical_mask_groups": item.logical_mask_groups,
+                "structural_mask_groups": item.structural_mask_groups,
+                "mask_files": item.mask_files,
+            }
+            for item in inventory
+        ],
+        "totals": {
+            "train_good": sum(item.train_good for item in inventory),
+            "validation_good": sum(
+                item.validation_good for item in inventory
+            ),
+            "test_good": sum(item.test_good for item in inventory),
+            "test_logical": sum(item.test_logical for item in inventory),
+            "test_structural": sum(
+                item.test_structural for item in inventory
+            ),
+            "logical_mask_groups": sum(
+                item.logical_mask_groups for item in inventory
+            ),
+            "structural_mask_groups": sum(
+                item.structural_mask_groups for item in inventory
+            ),
+            "mask_files": sum(item.mask_files for item in inventory),
+        },
+        "images": {
+            "file_count": image_summary.file_count,
+            "sizes": [
+                {
+                    "width": width,
+                    "height": height,
+                    "count": count,
+                }
+                for (width, height), count in image_summary.sizes.items()
+            ],
+            "modes": image_summary.modes,
+        },
+        "mask_groups": {
+            "validated": validated_mask_groups,
+        },
+        "mask_files": {
+            "validated": validated_masks,
+        },
+        "validations": {
+            "structure": "passed",
+            "inventory": "passed",
+            "image_readability": "passed",
+            "masks": "passed",
+        },
+    }
+
+
+def write_report(report_path: Path, report: dict[str, object]) -> None:
+    resolved_report_path = report_path.resolve()
+    resolved_report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with resolved_report_path.open("w", encoding="utf-8") as report_file:
+        json.dump(report, report_file, indent=2, ensure_ascii=False)
+        report_file.write("\n")
 
 
 def main() -> None:
@@ -295,6 +415,17 @@ def main() -> None:
         dataset_root,
         categories,
     )
+
+    if arguments.report is not None:
+        report = create_report(
+            dataset_root,
+            categories,
+            inventory,
+            image_summary,
+            validated_mask_groups,
+            validated_masks,
+        )
+        write_report(arguments.report, report)
 
     print(f"Dataset root: {dataset_root}")
     print(f"Categories: {len(categories)}")
@@ -331,6 +462,8 @@ def main() -> None:
     print(f"Validated mask groups: {validated_mask_groups}")
     print(f"Validated mask files: {validated_masks}")
     print("Mask validation: passed")
+    if arguments.report is not None:
+        print(f"JSON report: {arguments.report.resolve()}")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import json
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +50,11 @@ class ImageValidationSummary:
 def parse_arguments() -> Namespace:
     parser = ArgumentParser(description="Validate a local MVTec AD 2 dataset.")
     parser.add_argument("--dataset-root", required=True, type=Path)
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="Optional path for the generated JSON validation report.",
+    )
     return parser.parse_args()
 
 
@@ -262,6 +268,83 @@ def validate_mask_pairs(
     return validated_pairs
 
 
+def create_report(
+    dataset_root: Path,
+    categories: list[str],
+    inventory: list[CategoryInventory],
+    image_summary: ImageValidationSummary,
+    validated_mask_names: int,
+    validated_mask_pairs: int,
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "dataset": "mvtec-ad-2",
+        "dataset_root": str(dataset_root),
+        "status": "passed",
+        "categories": categories,
+        "inventory": [
+            {
+                "category": item.category,
+                "train_good": item.train_good,
+                "validation_good": item.validation_good,
+                "public_good": item.public_good,
+                "public_bad": item.public_bad,
+                "public_masks": item.public_masks,
+                "private": item.private,
+                "private_mixed": item.private_mixed,
+            }
+            for item in inventory
+        ],
+        "totals": {
+            "train_good": sum(item.train_good for item in inventory),
+            "validation_good": sum(
+                item.validation_good for item in inventory
+            ),
+            "public_good": sum(item.public_good for item in inventory),
+            "public_bad": sum(item.public_bad for item in inventory),
+            "public_masks": sum(item.public_masks for item in inventory),
+            "private": sum(item.private for item in inventory),
+            "private_mixed": sum(
+                item.private_mixed for item in inventory
+            ),
+        },
+        "images": {
+            "file_count": image_summary.file_count,
+            "sizes": [
+                {
+                    "width": width,
+                    "height": height,
+                    "count": count,
+                }
+                for (width, height), count in image_summary.sizes.items()
+            ],
+            "modes": image_summary.modes,
+        },
+        "public_mask_names": {
+            "validated": validated_mask_names,
+        },
+        "public_mask_pairs": {
+            "validated": validated_mask_pairs,
+        },
+        "validations": {
+            "structure": "passed",
+            "inventory": "passed",
+            "mask_names": "passed",
+            "image_readability": "passed",
+            "mask_content": "passed",
+        },
+    }
+
+
+def write_report(report_path: Path, report: dict[str, object]) -> None:
+    resolved_report_path = report_path.resolve()
+    resolved_report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with resolved_report_path.open("w", encoding="utf-8") as report_file:
+        json.dump(report, report_file, indent=2, ensure_ascii=False)
+        report_file.write("\n")
+
+
 def main() -> None:
     arguments = parse_arguments()
     dataset_root = arguments.dataset_root.resolve()
@@ -285,6 +368,17 @@ def main() -> None:
         dataset_root,
         categories,
     )
+
+    if arguments.report is not None:
+        report = create_report(
+            dataset_root,
+            categories,
+            inventory,
+            image_summary,
+            validated_pairs,
+            validated_mask_pairs,
+        )
+        write_report(arguments.report, report)
 
     print(f"Dataset root: {dataset_root}")
     print(f"Categories: {len(categories)}")
@@ -321,6 +415,8 @@ def main() -> None:
     print("Image readability validation: passed")
     print(f"Validated public image-mask pairs: {validated_mask_pairs}")
     print("Mask-content validation: passed")
+    if arguments.report is not None:
+        print(f"JSON report: {arguments.report.resolve()}")
 
 
 if __name__ == "__main__":

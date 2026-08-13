@@ -288,7 +288,7 @@ The implemented dataset validators currently verify relevant combinations of:
 
 The deterministic split was additionally checked for complete source coverage and zero overlap.
 
-Future validation may add duplicate-content detection and machine-readable reports. Validation must run before fitting or evaluation.
+All three dataset validators can write schema-versioned JSON reports after successful validation. Generated reports currently contain resolved local dataset paths and remain ignored local output. Future validation may add duplicate-content detection. Validation must run before fitting or evaluation.
 
 ### Dataset Storage Boundary
 
@@ -782,19 +782,21 @@ The following steps have been completed:
 8. Select MVTec AD bottle as the first category.
 9. Create and verify the deterministic 167/42 bottle split.
 10. Execute the pretrained preprocessing transform on a real bottle image.
+11. Add schema-versioned JSON reporting to all three dataset validators.
+12. Correct MVTec LOCO AD mask validation to use category-specific values from `defects_config.json`.
 
 ## Immediate Architectural Validation Steps
 
 The next steps should be performed in this order:
 
-1. Add machine-readable JSON reports to the dataset validators.
-2. Save and inspect the original, resized, and cropped bottle image.
-3. Refactor the Python technical spike into reusable, testable modules.
-4. Load the bottle partitions through the deterministic split manifest.
-5. Build and measure the first normal feature Memory Bank.
+1. Save and inspect the original, resized, and cropped Bottle image.
+2. Refactor the Python technical spike into reusable, testable modules.
+3. Load the Bottle partitions through the deterministic split manifest.
+4. Add automated tests for dataset report generation and schema contents.
+5. Build and measure the first normal feature memory.
 6. Implement and verify nearest-neighbor anomaly scoring.
 7. Select a threshold using only normal validation scores.
-8. Evaluate the baseline on the official bottle test partition.
+8. Evaluate the baseline on the official Bottle test partition.
 9. Define the first artifact metadata schema from the evaluated implementation.
 10. Package the ONNX model, feature memory, metadata, threshold, and evaluation summary.
 11. Create a minimal .NET console spike that loads the package.
@@ -812,4 +814,4 @@ The next steps should be performed in this order:
 
 ## Last Updated
 
-This architecture reflects the verified project state as of 2026-08-12.
+This architecture reflects the verified project state as of 2026-08-13.
