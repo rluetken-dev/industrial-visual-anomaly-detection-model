@@ -5,6 +5,8 @@ from .split_manifest_loader import (
     load_split_manifest,
     validate_split_manifest,
 )
+from .labeled_image import LabeledImage
+from .mvtec_ad_test import discover_mvtec_ad_test_images
 
 __all__ = [
     "DatasetSplitManifest",
@@ -12,4 +14,6 @@ __all__ = [
     "load_split_manifest",
     "resolve_dataset_image_paths",
     "validate_split_manifest",
+    "LabeledImage",
+    "discover_mvtec_ad_test_images",
 ]
