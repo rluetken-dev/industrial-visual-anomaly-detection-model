@@ -4,13 +4,14 @@
 [![Release](https://img.shields.io/github/v/release/rluetken-dev/industrial-visual-anomaly-detection-model?include_prereleases)](https://github.com/rluetken-dev/industrial-visual-anomaly-detection-model/releases)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.13-EE4C2C?logo=pytorch&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?logo=fastapi&logoColor=white)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 
 Industrial Visual Anomaly Detection is an educational and portfolio-oriented computer-vision project for detecting unusual visual patterns in industrial inspection images and highlighting suspicious regions.
 
-The implemented Python MVP uses a frozen pretrained ResNet18 and a PatchCore-inspired feature-memory approach. It can validate datasets, create reproducible data splits, build category-specific anomaly models, evaluate them, generate heatmaps, export reusable artifacts, and classify individual images on CPU.
+The implemented Python MVP uses a frozen pretrained ResNet18 and a PatchCore-inspired feature-memory approach. It can validate datasets, create reproducible data splits, build category-specific anomaly models, evaluate them, generate heatmaps, export reusable artifacts, classify individual images on CPU, and expose a loaded artifact through an internal FastAPI inference service.
 
-> **Current status:** The Python model-development and local inference MVP is implemented. Bottle and Capsule have been evaluated exploratorily, a reusable Capsule reference artifact can be exported, and 54 automated tests cover the main deterministic components. The ASP.NET Core backend, web client, and desktop client are planned but not yet implemented.
+> **Current status:** The Python model-development, artifact export, local inference, and internal HTTP inference-service MVPs are implemented. Bottle and Capsule have been evaluated exploratorily, a reusable Capsule reference artifact can be exported, and 65 automated tests cover the main deterministic and service components. End-to-end communication from the separate ASP.NET Core backend through the Python service to the model has been verified locally.
 
 ## What the Model Does
 
@@ -43,8 +44,36 @@ The current output is `normal` or `anomalous`. It does not classify the exact de
 - image-level evaluation metrics and defect-group reporting;
 - anomaly heatmaps and image overlays;
 - versioned Python/PyTorch model artifact export and loading;
-- reusable single-image inference API and CLI;
-- automated unit tests and GitHub Actions CI.
+- reusable file-path and binary-stream inference APIs;
+- single-image inference CLI;
+- internal FastAPI inference service with startup-time artifact loading;
+- multipart image prediction endpoint for backend integration;
+- automated unit and service tests;
+- GitHub Actions CI.
+
+## System Integration
+
+The Python repository owns model development and inference execution. A separate ASP.NET Core backend owns the public application API and delegates model execution to this internal Python service.
+
+```text
+Client
+  -> ASP.NET Core backend
+  -> internal FastAPI inference service
+  -> loaded PyTorch artifact and feature memory
+  -> prediction response
+  -> ASP.NET Core response
+```
+
+The service loads the configured artifact and creates the feature extractor once during application startup. Requests reuse both objects instead of loading the approximately 410 MiB Capsule feature memory for every image.
+
+The verified local integration uses:
+
+- backend endpoint: `POST /api/v1/analyses`;
+- internal Python endpoint: `POST /api/v1/predictions`;
+- multipart upload field: `image`;
+- Python service address: `http://127.0.0.1:8000`.
+
+The ASP.NET Core backend is maintained in the separate [industrial-visual-anomaly-detection-backend](https://github.com/rluetken-dev/industrial-visual-anomaly-detection-backend) repository.
 
 ## Reference Configurations
 
@@ -123,6 +152,12 @@ industrial-visual-anomaly-detection-model/
 │       ├── artifacts/
 │       ├── datasets/
 │       ├── models/
+│       ├── service/
+│       │   ├── app.py
+│       │   ├── prediction_response.py
+│       │   ├── prediction_routes.py
+│       │   ├── runtime.py
+│       │   └── settings.py
 │       ├── evaluation.py
 │       ├── inference.py
 │       ├── preprocessing.py
@@ -141,6 +176,10 @@ Local datasets, generated reports, heatmaps, ONNX files, feature memories, and m
 - Python 3.12.10
 - PyTorch 2.13.0 CPU
 - TorchVision 0.28.0 CPU
+- FastAPI 0.139.2
+- Uvicorn 0.50.0
+- python-multipart 0.0.32
+- HTTPX 0.28.1
 - Pillow 12.2.0
 - NumPy 2.4.4
 - ONNX 1.22.0
@@ -148,12 +187,12 @@ Local datasets, generated reports, heatmaps, ONNX files, feature memories, and m
 - ONNXScript 0.7.1
 - GitHub Actions
 
-Planned application stack:
+Related application stack:
 
-- ASP.NET Core backend;
-- separate web client;
-- separate desktop client;
-- shared versioned inference API.
+- separate ASP.NET Core backend;
+- planned separate web client;
+- planned separate desktop client;
+- versioned HTTP inference boundary between .NET and Python.
 
 ## Local Setup
 
@@ -161,7 +200,7 @@ Planned application stack:
 
 - Python 3.12
 - Git
-- sufficient storage for datasets kept outside the repository
+- sufficient storage for datasets and generated model artifacts outside Git
 
 The current implementation supports CPU-only execution. A CUDA-capable GPU is not required.
 
@@ -204,7 +243,7 @@ Activation is optional. All commands below call the environment interpreter expl
     -v
 ```
 
-The GitHub Actions workflow runs equivalent checks with Python 3.12 on Ubuntu for every push and pull request targeting `main`.
+The current suite contains 65 tests. The GitHub Actions workflow runs equivalent checks with Python 3.12 on Ubuntu for every push and pull request targeting `main`.
 
 ## Dataset Setup
 
@@ -214,13 +253,13 @@ Download datasets directly from their official sources and store them outside th
 - [MVTec LOCO AD](https://www.mvtec.com/research-teaching/datasets/mvtec-loco-ad)
 - [MVTec AD 2](https://www.mvtec.com/research-teaching/datasets/mvtec-ad-2)
 
-The local project used:
+Example dataset root:
 
 ```text
-C:\dev\data\industrial-visual-anomaly-detection\raw\
+C:\path\to\industrial-visual-anomaly-detection\raw\
 ```
 
-This path is only an example. Supply your own dataset root to every command.
+Supply your own dataset root to every dataset-dependent command.
 
 ## Validate the Datasets
 
@@ -296,9 +335,9 @@ metadata.json
 feature_memory.pt
 ```
 
-The current format is a versioned Python/PyTorch artifact, not yet a framework-neutral production package.
+The current format is a versioned Python/PyTorch artifact, not a framework-neutral production package.
 
-## Predict One Image
+## Predict One Image from the CLI
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\predict_image.py `
@@ -307,6 +346,65 @@ The current format is a versioned Python/PyTorch artifact, not yet a framework-n
 ```
 
 The command prints the model configuration, anomaly score, threshold, decision, feature-memory shape, and relevant timings.
+
+## Run the Internal Inference Service
+
+Configure the artifact and optional nearest-neighbor chunk size:
+
+```powershell
+$env:IVAD_MODEL_ARTIFACT = "$PWD\outputs\model-artifacts\mvtec-ad-capsule-320"
+$env:IVAD_MEMORY_CHUNK_SIZE = "4096"
+```
+
+Start the service:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn `
+    industrial_visual_anomaly_detection.service.app:app `
+    --host 127.0.0.1 `
+    --port 8000
+```
+
+The startup process loads the configured artifact and creates the frozen feature extractor once. Keep the process running while the backend sends inference requests.
+
+### Check Service Health
+
+```powershell
+Invoke-RestMethod `
+    -Uri http://127.0.0.1:8000/health/live `
+    -Method Get
+```
+
+Expected response:
+
+```json
+{
+  "status": "healthy"
+}
+```
+
+### Request a Prediction
+
+```powershell
+curl.exe `
+    -X POST `
+    http://127.0.0.1:8000/api/v1/predictions `
+    -F "image=@C:\path\to\image.png;type=image/png"
+```
+
+Example response:
+
+```json
+{
+  "modelId": "mvtec-ad-capsule-320",
+  "category": "capsule",
+  "score": 4.992109298706055,
+  "threshold": 2.501821517944336,
+  "isAnomalous": true
+}
+```
+
+The endpoint is intended as an internal model boundary. Public upload validation, error mapping, trace identifiers, and client-facing response contracts belong to the ASP.NET Core backend.
 
 ## Visualization
 
@@ -327,9 +425,9 @@ Heatmaps are explanation aids. Pixel-level benchmark metrics against ground-trut
 - installs the project in editable mode;
 - compiles Python source files;
 - checks installed dependencies;
-- runs all unit tests.
+- runs all unit and service tests.
 
-Dataset-dependent benchmarks and large artifact exports are intentionally excluded from CI because the licensed datasets and generated feature memories are not stored in the repository.
+Dataset-dependent benchmarks, real service startup with a large artifact, and artifact exports are intentionally excluded from CI because the licensed datasets and generated feature memories are not stored in the repository.
 
 ## Documentation
 
@@ -345,23 +443,27 @@ Dataset-dependent benchmarks and large artifact exports are intentionally exclud
 - current benchmark results are exploratory because test images were inspected during development;
 - pixel-level localization metrics are not implemented;
 - exact nearest-neighbor search is computationally and memory intensive;
-- the current artifact uses PyTorch tensor serialization;
+- the current artifact uses PyTorch tensor serialization and is trusted local input;
 - artifact metadata does not yet fully describe every preprocessing operation;
-- the selected 320 × 320 pipeline still requires updated ONNX export and parity verification;
 - one category-specific artifact must not be assumed to generalize to another category;
-- no backend, web client, or desktop client exists yet;
+- the inference service currently serializes access to its shared model runtime;
+- service authentication, containerization, production health checks, and deployment hardening are not implemented;
+- the separate ASP.NET Core backend is under active development;
+- web and desktop clients are not implemented;
 - the system is not certified for production quality-control decisions.
 
 ## Roadmap
 
+- harden the internal inference-service error contract and upload validation;
+- add readiness behavior based on loaded artifact availability;
+- add backend-to-service integration coverage suitable for CI;
 - evaluate at least one MVTec AD category beyond Bottle and Capsule;
 - implement pixel-level localization metrics;
 - define an evaluation protocol that does not tune on inspected test data;
 - investigate principled feature-memory reduction and faster nearest-neighbor search;
 - complete portable artifact and 320 × 320 ONNX parity work;
-- implement the ASP.NET Core inference backend;
-- implement separate web and desktop clients;
-- add a Model Card and release documentation.
+- continue the ASP.NET Core backend and integrate separate web and desktop clients;
+- add a Model Card and updated release documentation.
 
 ## Dataset and Artifact Policy
 

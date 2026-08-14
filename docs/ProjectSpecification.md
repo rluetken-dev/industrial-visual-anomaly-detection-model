@@ -2,19 +2,22 @@
 
 ## Document Purpose
 
-This document defines the current functional and non-functional requirements for the Industrial Visual Anomaly Detection project.
+This document defines the current functional and non-functional requirements for the Industrial Visual Anomaly Detection system.
 
-It distinguishes between:
+It covers:
 
-- the implemented Python model-development and inference MVP;
-- requirements that are partially implemented or still experimental;
-- the planned backend, web, and desktop system.
+- the implemented Python model-development and inference pipeline;
+- versioned Python/PyTorch model artifacts;
+- the implemented internal FastAPI inference service;
+- the implemented foundation of the separate ASP.NET Core backend;
+- planned web and desktop clients;
+- experimental, deferred, and production-hardening requirements.
 
-Implementation history and short-term work are recorded in `DevelopmentStatus.md`. Architectural responsibilities and boundaries are described in `ArchitectureOverview.md`.
+Implementation history and immediate work are recorded in `DevelopmentStatus.md`. Architectural responsibilities and boundaries are described in `ArchitectureOverview.md`.
 
 ## Requirement Identification
 
-Requirement identifiers use the following prefixes:
+Requirement identifiers use these prefixes:
 
 - `FR` – Functional Requirement
 - `BR` – Business Rule
@@ -30,7 +33,8 @@ Functional-area codes are:
 - `EVA` – Evaluation
 - `VIS` – Visualization
 - `ART` – Model Artifacts
-- `API` – Backend API
+- `SVC` – Internal Python Inference Service
+- `API` – ASP.NET Core Backend API
 - `WEB` – Web Application
 - `DSK` – Desktop Application
 - `OBS` – Observability and Diagnostics
@@ -40,30 +44,32 @@ Identifiers follow `<type>-<area>-<number>`, for example `FR-INF-001`.
 
 ## Project Overview
 
-Industrial Visual Anomaly Detection is a portfolio-oriented computer-vision system for detecting unusual visual patterns in industrial inspection images and highlighting suspicious image regions.
+Industrial Visual Anomaly Detection is a portfolio-oriented computer-vision system for detecting unusual visual patterns in industrial inspection images and highlighting suspicious regions.
 
-The implemented Python MVP uses a PatchCore-inspired method:
+The implemented model uses a PatchCore-inspired method:
 
 1. normal images are preprocessed deterministically;
 2. a frozen pretrained ResNet18 extracts intermediate features;
-3. `layer2` and `layer3` features are combined into local patch embeddings;
+3. `layer2` and `layer3` features are combined into patch embeddings;
 4. embeddings from normal fitting images form a feature memory;
 5. query patches are compared with their nearest normal neighbor;
 6. patch distances form an anomaly map;
 7. an aggregation rule produces one image-level anomaly score;
-8. a threshold derived only from held-out normal validation images determines the final decision.
+8. a threshold derived only from held-out normal validation images determines the decision.
 
-The system detects deviation from learned normal appearance. It does not currently classify the exact defect type.
+The system detects deviation from learned normal appearance. It does not classify the exact defect type.
+
+Model inference remains authoritative in Python. A persistent internal FastAPI service exposes it to a separate ASP.NET Core backend, which owns the public application API and future client integration.
 
 ## Current Implementation Status
 
 ### Implemented and Verified
 
-- Python 3.12 CPU development environment;
+- Python 3.12 CPU development and inference environment;
 - reusable `src`-layout Python package;
 - deterministic RGB preprocessing with direct square resize and ImageNet normalization;
 - configurable input resolution;
-- frozen pretrained ResNet18 feature extraction from `layer2` and `layer3`;
+- frozen pretrained ResNet18 `layer2` and `layer3` feature extraction;
 - 384-dimensional multi-scale patch embeddings;
 - complete normal feature-memory construction;
 - deterministic random feature-memory sampling as an experimental option;
@@ -72,46 +78,58 @@ The system detects deviation from learned normal appearance. It does not current
 - maximum and top-fraction-mean image-score aggregation;
 - normal-validation-based threshold selection;
 - MVTec AD category discovery and labeled test loading;
-- image-level classification metrics and per-group reporting;
-- anomaly heatmap generation and overlays;
+- image-level metrics and per-group reporting;
+- anomaly heatmaps and overlays;
 - versioned PyTorch model artifacts containing metadata and feature memory;
 - artifact validation, writing, and loading;
-- single-image Python inference API and command-line interface;
-- export command for reusable category-specific artifacts;
-- automated unit tests for the main dataset, model, evaluation, visualization, sampling, and artifact components.
+- file-path and binary-stream inference;
+- single-image prediction CLI;
+- FastAPI service with startup-time artifact and extractor loading;
+- FastAPI liveness and multipart prediction endpoints;
+- serialized access to shared inference state;
+- ASP.NET Core .NET 10 backend foundation;
+- backend liveness, readiness, Problem Details, upload validation, and analysis endpoint;
+- backend HTTP adapter to the Python inference service;
+- manually verified end-to-end inference through both processes;
+- 65 passing Python tests and automated backend tests;
+- GitHub Actions CI in both implemented repositories.
 
 ### Verified Datasets
 
-The local copies of MVTec AD, MVTec LOCO AD, and MVTec AD 2 have passed structural, inventory, image-readability, and available mask validations. Machine-readable JSON validation reports can be generated locally.
+Local copies of MVTec AD, MVTec LOCO AD, and MVTec AD 2 pass structural, inventory, image-readability, and available mask validations. Machine-readable JSON validation reports can be generated locally.
 
 ### Reference Categories
 
-`bottle` was the first baseline category. It uses a deterministic split of 209 normal training images into 167 fitting and 42 validation images.
+`bottle` was the first baseline category. Its 209 normal training images are split into 167 fitting and 42 validation images.
 
-`capsule` is the current artifact and inference reference category. It uses a deterministic split of 219 normal training images into 175 fitting and 44 validation images.
+`capsule` is the current artifact and service reference category. Its 219 normal training images are split into 175 fitting and 44 validation images.
 
-The selected Capsule reference configuration is:
+The selected Capsule configuration is:
 
-- input size: 320 × 320;
-- patch grid: 40 × 40;
+- input size: 320 x 320;
+- patch grid: 40 x 40;
 - embedding dimension: 384;
-- image-score aggregation: mean of the highest-scoring 1% of patches;
-- threshold source: maximum normal validation score;
-- feature memory: complete, unsampled fitting memory;
+- image aggregation: mean of the highest-scoring 1% of patches;
+- threshold: maximum normal-validation score;
+- feature memory: complete unsampled fitting memory;
 - feature-memory shape: `(280000, 384)`;
 - feature-memory size: approximately 410.16 MiB;
-- threshold: approximately `2.501822`.
+- stored threshold: `2.501821517944336`.
 
 ### Not Yet Implemented
 
 - pixel-level benchmark metrics against ground-truth masks;
 - systematic multi-category benchmark execution;
-- framework-neutral production artifact format;
-- updated ONNX export and parity verification for the selected 320 × 320 pipeline;
-- ASP.NET Core backend;
+- complete preprocessing metadata and artifact checksums;
+- Python-service readiness endpoint;
+- structured internal service error contract;
+- defense-in-depth malformed-image validation in the Python service;
+- production timeout, cancellation, retry, and concurrency policies;
+- service packaging and process supervision;
+- backend persistence, authentication, and production observability;
 - web application;
 - desktop application;
-- production authentication, authorization, persistence, and observability.
+- production deployment and public model-artifact distribution.
 
 ## Project Goals
 
@@ -122,8 +140,10 @@ The project shall demonstrate:
 - reproducible image-level anomaly detection;
 - understandable spatial anomaly visualization;
 - deterministic evaluation and artifact generation;
-- a reusable model boundary suitable for later application integration;
-- a future client-neutral backend serving both web and desktop clients;
+- reusable offline and stream-based inference;
+- a persistent internal Python model service;
+- a stable client-neutral ASP.NET Core API;
+- independent model and application boundaries;
 - transparent reporting of assumptions, limitations, and exploratory results.
 
 ## Intended Users
@@ -133,17 +153,21 @@ The project shall demonstrate:
 - portfolio reviewers examining architecture, testing, and reproducibility;
 - future web and desktop users submitting inspection images and reviewing results.
 
-The project is not currently certified for production quality control or safety-critical decisions.
+The project is not certified for production quality control or safety-critical decisions.
 
 ## Scope
 
-### Current Python MVP
+### Python Model and Service Scope
 
-The current scope includes dataset qualification, deterministic splitting, preprocessing, feature-memory creation, anomaly scoring, evaluation, visualization, artifact export, artifact loading, and single-image inference.
+The current Python scope includes dataset qualification, deterministic splitting, preprocessing, feature-memory creation, anomaly scoring, evaluation, visualization, artifact export and loading, file-path and binary-stream inference, and the internal FastAPI service.
 
-### Planned Application Scope
+### Backend Scope
 
-The planned system adds an ASP.NET Core backend and separate web and desktop clients. Both clients shall consume the same backend contract rather than embedding independent business logic.
+The ASP.NET Core backend owns the public image-analysis endpoint, upload validation, application orchestration, the Python-service adapter, stable error mapping, trace identifiers, and future client access.
+
+### Planned Client Scope
+
+Separate web and desktop clients shall consume the same backend contract rather than duplicating model or business logic.
 
 ### Explicitly Deferred
 
@@ -151,220 +175,269 @@ The planned system adds an ASP.NET Core backend and separate web and desktop cli
 - supervised detector training;
 - continuous video inspection;
 - camera and programmable-logic-controller integration;
-- automated model retraining in production;
+- automated production retraining;
 - multi-tenant operation;
 - safety certification;
-- commercial use of datasets without separate license review.
+- commercial dataset use without separate license review.
 
 ## Functional Requirements
 
 ### Dataset Management
 
 - `FR-DAT-001` The system shall accept dataset roots outside the Git repository.
-- `FR-DAT-002` Dataset validators shall verify expected structure, inventory, readable images, and available mask relationships.
-- `FR-DAT-003` Dataset validators shall support optional schema-versioned JSON reports.
-- `FR-DAT-004` Raw datasets and generated validation reports shall remain excluded from Git.
-- `FR-DAT-005` A deterministic split manifest shall identify fitting and normal-validation images.
-- `FR-DAT-006` Split validation shall reject duplicate, overlapping, absolute, or parent-traversing image paths.
-- `FR-DAT-007` Dataset paths resolved from a manifest shall be verified to exist before model processing.
+- `FR-DAT-002` Validators shall verify expected structure, inventory, readable images, and available mask relationships.
+- `FR-DAT-003` Validators shall support optional schema-versioned JSON reports.
+- `FR-DAT-004` Raw datasets and generated reports shall remain excluded from Git.
+- `FR-DAT-005` A deterministic manifest shall identify fitting and normal-validation images.
+- `FR-DAT-006` Manifest validation shall reject duplicate, overlapping, absolute, or parent-traversing paths.
+- `FR-DAT-007` Resolved dataset paths shall be verified before model processing.
 - `FR-DAT-008` MVTec AD test discovery shall preserve category, defect group, and normal/anomalous labels.
 
 ### Image Preprocessing
 
 - `FR-PRE-001` Input images shall be converted to RGB.
-- `FR-PRE-002` Images shall be resized directly to the configured square input size using bilinear interpolation with antialiasing.
-- `FR-PRE-003` Images shall be converted to floating-point tensors and normalized with ImageNet mean and standard deviation.
-- `FR-PRE-004` Fitting, validation, evaluation, export, and inference shall use the same preprocessing definition for a given model configuration.
-- `FR-PRE-005` The selected input size shall be recorded in exported artifact metadata.
-- `FR-PRE-006` Preprocessing inspection tooling shall permit visual verification of resizing decisions.
+- `FR-PRE-002` Images shall be resized directly to the configured square input using bilinear interpolation with antialiasing.
+- `FR-PRE-003` Images shall become floating-point tensors normalized with ImageNet mean and standard deviation.
+- `FR-PRE-004` Fitting, validation, evaluation, CLI, and service inference shall use the same preprocessing for a model configuration.
+- `FR-PRE-005` The selected input size shall be recorded in artifact metadata.
+- `FR-PRE-006` Inspection tooling shall permit visual verification of resize behavior.
 
 ### Model Development
 
-- `FR-MOD-001` The first baseline shall use a pretrained ResNet18 with frozen parameters.
-- `FR-MOD-002` The feature extractor shall expose `layer2` and `layer3` feature maps.
-- `FR-MOD-003` The embedding pipeline shall resize `layer3` features to the `layer2` spatial grid and concatenate both channel dimensions.
+- `FR-MOD-001` The reference baseline shall use pretrained ResNet18 with frozen parameters.
+- `FR-MOD-002` The extractor shall expose `layer2` and `layer3` maps.
+- `FR-MOD-003` The embedding pipeline shall resize `layer3` to the `layer2` grid and concatenate channels.
 - `FR-MOD-004` Each patch embedding shall contain 384 values.
 - `FR-MOD-005` Feature memory shall be built only from normal fitting images.
-- `FR-MOD-006` Complete feature memory shall remain the reference behavior.
-- `FR-MOD-007` Optional memory sampling shall be deterministic for a fixed sampling seed.
-- `FR-MOD-008` Sampling experiments shall report retained fraction and resulting memory size.
+- `FR-MOD-006` Complete feature memory shall remain reference behavior.
+- `FR-MOD-007` Optional memory sampling shall be deterministic for a fixed seed.
+- `FR-MOD-008` Sampling experiments shall report retained fraction, memory size, runtime, and quality.
 
 ### Anomaly Inference
 
-- `FR-INF-001` Each query patch shall be scored by its exact Euclidean distance to the nearest feature-memory entry.
-- `FR-INF-002` Nearest-neighbor computation shall support chunking to limit temporary memory consumption.
-- `FR-INF-003` Patch scores shall be reconstructed into a spatial grid for every image.
-- `FR-INF-004` Image scores shall support maximum aggregation and top-fraction-mean aggregation.
-- `FR-INF-005` A prediction shall be anomalous only when its score is strictly greater than the configured threshold.
-- `FR-INF-006` Single-image inference shall return image path, anomaly score, threshold, decision, and patch-score grid.
-- `FR-INF-007` Inference shall derive input size, patch-grid size, aggregation, and threshold from the loaded artifact.
-- `FR-INF-008` The Python CLI shall display the artifact configuration, score, threshold, decision, and relevant timings.
+- `FR-INF-001` Each query patch shall use exact Euclidean distance to its nearest feature-memory entry.
+- `FR-INF-002` Distance computation shall support chunking to limit temporary memory.
+- `FR-INF-003` Patch scores shall be reconstructed into a spatial grid.
+- `FR-INF-004` Image scores shall support maximum and top-fraction-mean aggregation.
+- `FR-INF-005` A prediction shall be anomalous only when its score is strictly greater than the threshold.
+- `FR-INF-006` Path-based inference shall return image path, score, threshold, decision, and patch-score grid.
+- `FR-INF-007` Stream inference shall return score, threshold, decision, and patch-score grid without requiring a temporary path.
+- `FR-INF-008` Inference shall derive input size, patch-grid size, aggregation, and threshold from the artifact.
+- `FR-INF-009` CLI inference shall display model configuration, score, threshold, decision, and relevant timings.
+- `FR-INF-010` Path and stream inference shall share the same preprocessing and scoring implementation.
 
 ### Evaluation
 
-- `FR-EVA-001` The decision threshold shall be derived only from held-out normal validation images.
-- `FR-EVA-002` The current threshold rule shall use the maximum normal validation image score.
-- `FR-EVA-003` Evaluation shall report score distributions for normal validation data and each test defect group.
-- `FR-EVA-004` Evaluation shall report true positives, true negatives, false positives, false negatives, accuracy, precision, recall, and F1 score.
-- `FR-EVA-005` Evaluation shall report detection rates by test group and list false negatives.
-- `FR-EVA-006` Aggregation comparisons shall reuse the same patch-score tensors when possible.
-- `FR-EVA-007` Results obtained after inspecting the test partition shall be identified as exploratory rather than unbiased final estimates.
-- `FR-EVA-008` Future pixel-level evaluation shall compare anomaly maps with ground-truth masks using explicitly selected metrics.
+- `FR-EVA-001` The threshold shall derive only from held-out normal validation images.
+- `FR-EVA-002` The current threshold rule shall use the maximum normal-validation score.
+- `FR-EVA-003` Evaluation shall report validation and per-defect-group score distributions.
+- `FR-EVA-004` Evaluation shall report confusion counts, accuracy, precision, recall, and F1.
+- `FR-EVA-005` Evaluation shall report per-group detection and false negatives.
+- `FR-EVA-006` Aggregation comparisons shall reuse the same patch scores where possible.
+- `FR-EVA-007` Results influenced by inspected test data shall be labeled exploratory.
+- `FR-EVA-008` Future pixel evaluation shall compare maps with masks using explicitly selected metrics.
 
 ### Visualization
 
-- `FR-VIS-001` The system shall resize a patch-score grid to image resolution using bilinear interpolation.
-- `FR-VIS-002` Anomaly maps shall support per-image normalization for visual inspection.
-- `FR-VIS-003` Anomaly maps shall support fixed threshold-based normalization for cross-image visual comparison.
+- `FR-VIS-001` Patch-score grids shall resize to image resolution using bilinear interpolation.
+- `FR-VIS-002` Maps shall support per-image normalization.
+- `FR-VIS-003` Maps shall support threshold-based normalization for cross-image comparison.
 - `FR-VIS-004` The system shall create RGB heatmaps and configurable-opacity overlays.
-- `FR-VIS-005` Heatmaps shall remain an explanation aid and shall not replace the image-level decision contract.
+- `FR-VIS-005` Heatmaps shall remain explanation aids and not replace decision contracts.
 
 ### Model Artifacts
 
-- `FR-ART-001` A model artifact shall contain `metadata.json` and `feature_memory.pt`.
-- `FR-ART-002` Artifact metadata shall include schema version, dataset, category, backbone, input size, patch-grid size, embedding dimension, aggregation method, top fraction, threshold, memory fraction, sampling seed, and feature-memory entry count.
-- `FR-ART-003` The artifact writer shall reject empty, non-finite, incorrectly shaped, or metadata-inconsistent feature memory.
-- `FR-ART-004` The artifact loader shall validate required files, typed metadata, tensor dimensionality, finite values, entry count, and embedding dimension.
-- `FR-ART-005` Artifact tensors shall load onto CPU.
-- `FR-ART-006` Generated model artifacts shall remain excluded from Git.
-- `FR-ART-007` The export command shall rebuild fitting memory, calculate the normal-validation threshold, and write one reusable artifact.
-- `FR-ART-008` A future production artifact shall eliminate unnecessary Python/PyTorch runtime coupling or explicitly version that dependency.
-- `FR-ART-009` A future artifact schema shall contain a complete, self-describing preprocessing contract rather than only input size.
+- `FR-ART-001` A current artifact shall contain `metadata.json` and `feature_memory.pt`.
+- `FR-ART-002` Metadata shall include schema version, dataset, category, backbone, input and grid sizes, embedding dimension, aggregation, top fraction, threshold, memory fraction, sampling seed, and entry count.
+- `FR-ART-003` The writer shall reject empty, non-finite, incorrectly shaped, or metadata-inconsistent memory.
+- `FR-ART-004` The loader shall validate required files, typed metadata, tensor dimensions, finite values, entry count, and embedding dimension.
+- `FR-ART-005` Artifact tensors shall load onto CPU with restricted tensor loading behavior.
+- `FR-ART-006` Generated artifacts shall remain excluded from Git.
+- `FR-ART-007` Export shall rebuild fitting memory, calculate the validation threshold, and write one reusable artifact.
+- `FR-ART-008` The artifact format shall explicitly version its Python/PyTorch runtime dependency until a portable format is implemented.
+- `FR-ART-009` Future metadata shall become fully self-describing for preprocessing and pretrained-weight identity.
 
-### Backend API – Planned
+### Internal Python Service
 
-- `FR-API-001` A future ASP.NET Core backend shall own application-level inference orchestration.
-- `FR-API-002` The backend shall expose a versioned endpoint for submitting an image and receiving an anomaly result.
-- `FR-API-003` The result contract shall include score, threshold, decision, model identity, and optional localization data.
-- `FR-API-004` The backend shall validate file type, size, decoding, and request limits.
-- `FR-API-005` Web and desktop clients shall consume the same backend contract.
-- `FR-API-006` The backend shall not silently change model artifacts or thresholds.
+- `FR-SVC-001` The service shall read the artifact path from `IVAD_MODEL_ARTIFACT`.
+- `FR-SVC-002` The service shall support a positive configurable memory chunk size through `IVAD_MEMORY_CHUNK_SIZE`.
+- `FR-SVC-003` The artifact and feature extractor shall load once during application startup.
+- `FR-SVC-004` Requests shall reuse the loaded runtime.
+- `FR-SVC-005` `GET /health/live` shall report process liveness.
+- `FR-SVC-006` `POST /api/v1/predictions` shall accept multipart field `image`.
+- `FR-SVC-007` A successful response shall contain model ID, category, score, threshold, and Boolean anomaly decision.
+- `FR-SVC-008` The artifact directory name shall currently identify the model.
+- `FR-SVC-009` Shared runtime access shall remain serialized until measured concurrency behavior supports another policy.
+- `FR-SVC-010` The service shall expose readiness only after runtime initialization is successful.
+- `FR-SVC-011` The service shall eventually return structured internal errors for invalid images and inference failures.
+- `FR-SVC-012` The internal endpoint shall not be treated as the public client API.
+
+### ASP.NET Core Backend API
+
+- `FR-API-001` ASP.NET Core shall own public application-level inference orchestration.
+- `FR-API-002` `POST /api/v1/analyses` shall accept an image and return a client-neutral anomaly result.
+- `FR-API-003` The response shall include model identity, category, score, threshold, decision, processing duration, and trace identifier.
+- `FR-API-004` The backend shall validate required upload, file size, and allowed PNG/JPEG media types.
+- `FR-API-005` The backend shall depend on an anomaly-analyzer abstraction rather than Python-specific controller logic.
+- `FR-API-006` The Python adapter shall forward multipart field `image` to the internal prediction endpoint.
+- `FR-API-007` Service transport and availability failures shall map to stable Problem Details responses.
+- `FR-API-008` The backend shall provide liveness and readiness endpoints.
+- `FR-API-009` Web and desktop clients shall consume the same backend contract.
+- `FR-API-010` The backend shall not silently change model artifacts, aggregation, or thresholds.
 
 ### Web Application – Planned
 
-- `FR-WEB-001` The web client shall allow an image to be selected and submitted.
-- `FR-WEB-002` The web client shall display the anomaly decision, score, threshold, and model identity.
-- `FR-WEB-003` The web client shall display localization output when supplied by the backend.
-- `FR-WEB-004` Errors shall be understandable and shall not expose sensitive server details.
+- `FR-WEB-001` The web client shall allow image selection and submission.
+- `FR-WEB-002` It shall display decision, score, threshold, and model identity.
+- `FR-WEB-003` It shall display localization output when supplied by the backend.
+- `FR-WEB-004` Errors shall be understandable and omit sensitive server details.
 
 ### Desktop Application – Planned
 
-- `FR-DSK-001` The desktop client shall allow local image selection and submission to the shared backend.
-- `FR-DSK-002` The desktop client shall display the same essential result fields as the web client.
-- `FR-DSK-003` Desktop-specific convenience features shall not create a separate inference contract.
+- `FR-DSK-001` The desktop client shall allow local image selection and backend submission.
+- `FR-DSK-002` It shall display the same essential result fields as the web client.
+- `FR-DSK-003` Desktop convenience features shall not create a separate inference contract.
 
-### Observability and Diagnostics – Planned
+### Observability and Diagnostics
 
-- `FR-OBS-001` Inference diagnostics shall record model identity, duration, outcome, and failure category without logging raw image content by default.
-- `FR-OBS-002` Health information shall distinguish application availability from model readiness.
-- `FR-OBS-003` Operational logs shall use correlation identifiers for request tracing.
+- `FR-OBS-001` Diagnostics shall record model identity, duration, outcome, and failure category without logging raw image content by default.
+- `FR-OBS-002` Health information shall distinguish application liveness from model readiness.
+- `FR-OBS-003` Backend logs and responses shall support request correlation identifiers.
+- `FR-OBS-004` The Python service shall eventually record startup, artifact load, inference duration, and categorized failures.
 
 ## Business Rules
 
-- `BR-MOD-001` Only normal fitting images may populate the feature memory.
+- `BR-MOD-001` Only normal fitting images may populate feature memory.
 - `BR-EVA-001` Normal validation images may determine thresholds but may not populate feature memory.
-- `BR-EVA-002` Benchmark test labels may be used for evaluation but not for fitting or threshold selection.
-- `BR-INF-001` A score equal to the threshold is classified as normal; only a greater score is anomalous.
-- `BR-ART-001` Each artifact is category-specific unless a future schema explicitly declares otherwise.
-- `BR-ART-002` An artifact shall be treated as immutable after release.
-- `BR-DAT-001` Dataset licensing shall be reviewed before any public or commercial distribution.
+- `BR-EVA-002` Test labels may support evaluation but not fitting or threshold selection.
+- `BR-INF-001` A score equal to the threshold is normal; only a greater score is anomalous.
+- `BR-ART-001` Each artifact is category-specific unless its schema explicitly declares otherwise.
+- `BR-ART-002` A released artifact shall be immutable.
+- `BR-SVC-001` The Python service is the authoritative model-execution runtime for the selected architecture.
+- `BR-API-001` Clients shall call ASP.NET Core rather than the internal Python service.
+- `BR-DAT-001` Dataset licensing shall be reviewed before public or commercial distribution.
 
 ## Non-Functional Requirements
 
 ### Reproducibility
 
-- `NFR-MOD-001` Deterministic operations shall record their seeds and configuration.
+- `NFR-MOD-001` Deterministic operations shall record seeds and configuration.
 - `NFR-DAT-001` Versioned manifests shall make fitting and validation membership reproducible.
-- `NFR-ART-001` Exported artifacts shall contain enough metadata to identify their model configuration.
-- `NFR-EVA-001` Reported results shall state category, resolution, memory fraction, aggregation rule, and threshold rule.
+- `NFR-ART-001` Artifacts shall identify their model configuration.
+- `NFR-EVA-001` Results shall state category, resolution, memory fraction, aggregation, and threshold rule.
 
-### Performance
+### Performance and Resource Use
 
-- `NFR-INF-001` The reference implementation shall support CPU-only inference.
-- `NFR-INF-002` Distance computation shall avoid materializing the complete query-to-memory distance matrix.
-- `NFR-INF-003` Performance measurements shall separate artifact loading, extractor creation, feature-memory construction, and scoring where relevant.
-- `NFR-INF-004` Performance targets for a production backend shall be established only after the runtime and artifact format are selected.
+- `NFR-INF-001` The reference shall support CPU-only inference.
+- `NFR-INF-002` Distance computation shall avoid the complete query-to-memory distance matrix.
+- `NFR-INF-003` Measurements shall separate loading, extractor creation, memory construction, scoring, and end-to-end duration where relevant.
+- `NFR-SVC-001` The service shall avoid loading the artifact for every request.
+- `NFR-SVC-002` Worker and concurrency configuration shall account for duplicated feature-memory RAM.
+- `NFR-SVC-003` Production latency and throughput targets shall be established through measurement rather than assumption.
 
 ### Compatibility and Portability
 
-- `NFR-ART-002` Current PyTorch artifacts shall be labeled as Python-runtime artifacts, not runtime-neutral artifacts.
-- `NFR-ART-003` A future .NET integration shall use a verified compatible artifact or service boundary.
-- `NFR-MOD-002` ONNX parity shall be verified again for the selected production resolution before ONNX is used outside the technical spike.
+- `NFR-ART-002` Current artifacts shall be labeled Python/PyTorch artifacts rather than runtime-neutral artifacts.
+- `NFR-API-001` Backend and service contracts shall be explicitly versioned when compatibility changes require coordination.
+- `NFR-MOD-002` ONNX parity shall be reverified before ONNX is used in a supported runtime path.
+- `NFR-SVC-004` Model-service dependency versions shall remain pinned and reproducible.
 
 ### Maintainability and Testability
 
-- `NFR-MOD-003` Reusable model logic shall reside in the Python package rather than only in scripts.
-- `NFR-MOD-004` Public package functions shall validate invalid and inconsistent inputs with clear errors.
-- `NFR-MOD-005` Core deterministic components shall have automated unit tests.
-- `NFR-MOD-006` Command-line scripts shall compose reusable package components instead of duplicating model logic.
+- `NFR-MOD-003` Reusable model logic shall reside in the package rather than only in scripts.
+- `NFR-MOD-004` Public package functions shall reject invalid or inconsistent inputs clearly.
+- `NFR-MOD-005` Core deterministic components shall have automated tests.
+- `NFR-MOD-006` Scripts shall compose reusable package components.
+- `NFR-SVC-005` FastAPI construction shall allow injecting a test runtime without loading the real artifact.
+- `NFR-API-002` Controllers shall depend on application abstractions rather than transport adapters.
 
 ### Security and Privacy
 
 - `NFR-SEC-001` Uploaded images shall be treated as untrusted input.
-- `NFR-SEC-002` Future APIs shall enforce file-size, content-type, decoding, and request-time limits.
+- `NFR-SEC-002` The public API shall enforce file-size, content-type, decoding, and request-time limits.
 - `NFR-SEC-003` Raw inspection images shall not be retained or logged by default.
-- `NFR-SEC-004` Model artifacts shall not be accepted from untrusted sources without integrity controls.
-- `NFR-SEC-005` Secrets and environment-specific configuration shall not be committed to Git.
+- `NFR-SEC-004` PyTorch artifacts shall be trusted deployment inputs and shall not come from arbitrary users.
+- `NFR-SEC-005` Secrets and environment-specific paths shall not be committed.
+- `NFR-SEC-006` The Python service shall remain internal or use explicit protection if exposed beyond a trusted boundary.
+- `NFR-SEC-007` Production error responses shall not disclose sensitive paths or internals.
 
 ### Documentation
 
-- `NFR-MOD-007` Documentation shall distinguish verified facts, exploratory measurements, selected decisions, and planned work.
-- `NFR-MOD-008` Major architectural or model decisions shall be reflected in the living documentation before a release milestone.
+- `NFR-MOD-007` Documentation shall distinguish verified facts, exploratory measurements, selected decisions, and plans.
+- `NFR-MOD-008` Major architectural or model decisions shall be reflected before a release milestone.
 
 ## Acceptance Criteria
 
 ### Python Model MVP – Achieved
 
-- `AC-MOD-001` A normal-only feature memory can be built from a deterministic manifest.
-- `AC-MOD-002` Normal and anomalous test images can be scored without gradient tracking.
-- `AC-INF-001` Patch scores and an image-level anomaly decision are produced.
-- `AC-EVA-001` Image-level metrics and defect-group results are reported.
-- `AC-VIS-001` Anomaly overlays can be generated for normal and anomalous images.
-- `AC-MOD-003` Automated tests, compilation checks, and dependency checks pass.
+- `AC-MOD-001` A normal-only feature memory builds from a deterministic manifest.
+- `AC-MOD-002` Normal and anomalous images are scored without gradient tracking.
+- `AC-INF-001` Patch scores and an image-level decision are produced.
+- `AC-EVA-001` Image metrics and defect-group results are reported.
+- `AC-VIS-001` Overlays can be generated for normal and anomalous images.
+- `AC-MOD-003` Automated tests, compilation, and dependency checks pass.
 
 ### Artifact and Local Inference MVP – Achieved
 
-- `AC-ART-001` A Capsule 320 × 320 reference artifact can be exported and loaded.
-- `AC-ART-002` The loaded feature-memory shape and metadata match the exported configuration.
+- `AC-ART-001` A Capsule 320 x 320 artifact can be exported and loaded.
+- `AC-ART-002` Loaded memory and metadata match export configuration.
 - `AC-INF-002` The CLI classifies a known normal Capsule image as normal.
 - `AC-INF-003` The CLI classifies a known anomalous Capsule image as anomalous.
-- `AC-INF-004` Single-image prediction returns a 40 × 40 patch-score grid.
+- `AC-INF-004` Prediction returns a 40 x 40 patch-score grid.
+- `AC-INF-005` Path and stream inference produce the same verified score, threshold, and decision.
+
+### Internal Inference Service MVP – Achieved
+
+- `AC-SVC-001` The service starts with a configured real artifact.
+- `AC-SVC-002` The artifact and extractor initialize during startup.
+- `AC-SVC-003` Liveness returns a healthy response.
+- `AC-SVC-004` A multipart anomalous Capsule image returns the expected model identity and anomalous decision.
+- `AC-SVC-005` Service construction supports an injected runtime for automated tests.
+
+### Backend Integration MVP – Achieved
+
+- `AC-API-001` A versioned backend endpoint accepts a valid image and returns the defined result.
+- `AC-API-002` Missing, unsupported, and oversized uploads are rejected according to backend policy.
+- `AC-API-003` The backend communicates through an application abstraction and HTTP adapter.
+- `AC-API-004` A real Capsule image completes the C#-to-Python-to-model request successfully.
+- `AC-API-005` The backend result matches the authoritative Python score, threshold, and decision for the verified image.
+
+### Service Hardening Milestone – Pending
+
+- `AC-SVC-006` Readiness reflects loaded runtime availability.
+- `AC-SVC-007` Malformed images return a stable structured internal error.
+- `AC-SVC-008` Timeout, cancellation, and concurrency behavior are documented and tested.
+- `AC-SVC-009` Both processes can be started reproducibly from documented configuration.
 
 ### Model Evaluation Expansion – Pending
 
-- `AC-EVA-002` At least one category beyond the current Bottle and Capsule references is evaluated through the same generic workflow without category-specific model code.
-- `AC-EVA-003` Pixel-level localization metrics are implemented and verified against benchmark masks.
-- `AC-EVA-004` Final evaluation procedures avoid using the test partition for configuration selection, or explicitly provide a new untouched holdout.
+- `AC-EVA-002` Another category is evaluated through the generic workflow without category-specific model code.
+- `AC-EVA-003` Pixel localization metrics are implemented against benchmark masks.
+- `AC-EVA-004` Final procedures avoid configuration selection on the reported test partition or use a new untouched holdout.
 
-### Runtime-Portability Milestone – Pending
+### Optional Runtime-Portability Milestone – Pending
 
-- `AC-ART-003` The selected 320 × 320 feature extractor is exported to the intended portable runtime format.
-- `AC-ART-004` Numerical parity is verified using representative real images.
-- `AC-ART-005` Preprocessing and supporting model data can be reconstructed outside the current Python codebase.
-
-### Backend MVP – Pending
-
-- `AC-API-001` A versioned backend endpoint accepts a valid image and returns the defined inference result.
-- `AC-API-002` Invalid and oversized files are rejected safely.
-- `AC-API-003` Backend results agree with the verified Python reference for fixed test images within defined tolerances.
+- `AC-ART-003` A selected feature extractor is exported to a portable format when a concrete runtime need exists.
+- `AC-ART-004` Numerical parity is verified for that supported portable path.
+- `AC-ART-005` Supporting preprocessing and model state can be reconstructed in the target runtime.
 
 ### Client MVPs – Pending
 
 - `AC-WEB-001` The web client submits an image and displays the backend result.
 - `AC-DSK-001` The desktop client submits an image and displays the backend result.
-- `AC-API-004` Both clients use the same versioned API contract.
+- `AC-API-006` Both clients use the same versioned backend contract.
 
 ## Known Reference Results
 
-The following results are exploratory because MVTec AD test data was inspected during development.
+Results are exploratory because MVTec AD test data was inspected during development.
 
-### Bottle, 224 × 224, Complete Memory
+### Bottle, 224 x 224, Complete Memory
 
-- maximum aggregation: accuracy `0.9398`, precision `1.0000`, recall `0.9206`, F1 `0.9587`, 0 false positives, 5 false negatives;
-- top 1% mean: accuracy, precision, recall, and F1 `1.0000`, with 0 false positives and 0 false negatives;
-- top 5% mean: accuracy `0.9759`, precision `0.9692`, recall `1.0000`, F1 `0.9844`, 2 false positives, 0 false negatives.
+- maximum: accuracy `0.9398`, precision `1.0000`, recall `0.9206`, F1 `0.9587`, 0 FP, 5 FN;
+- top 1% mean: accuracy, precision, recall, and F1 `1.0000`, 0 FP, 0 FN;
+- top 5% mean: accuracy `0.9759`, precision `0.9692`, recall `1.0000`, F1 `0.9844`, 2 FP, 0 FN.
 
-### Capsule, 320 × 320, Complete Memory, Top 1% Mean
+### Capsule, 320 x 320, Complete Memory, Top 1% Mean
 
 - true positives: 104;
 - true negatives: 21;
@@ -375,42 +448,48 @@ The following results are exploratory because MVTec AD test data was inspected d
 - recall: `0.9541`;
 - F1: `0.9674`.
 
-Random sampling reduced memory and runtime but also reduced Capsule recall. Complete memory therefore remains the selected reference configuration.
+Random sampling reduced memory and runtime but also reduced Capsule recall. Complete memory remains selected.
 
 ## Known Limitations and Risks
 
-- Current artifacts depend on PyTorch tensor serialization.
-- Artifact metadata records input size but does not yet fully describe all preprocessing operations and constants.
-- The selected 320 × 320 pipeline has not yet received its final ONNX export and parity verification.
-- Exact nearest-neighbor search over complete feature memory is computationally and memory intensive.
-- The current threshold rule is simple and may not generalize equally across categories or deployment conditions.
-- Test data has influenced exploratory model decisions, so current benchmark numbers are not unbiased final estimates.
-- Heatmaps are visually useful but have not yet been validated with pixel-level metrics.
-- A model fitted on one category shall not be assumed to work on another category.
-- Lighting, alignment, camera, material, and production changes may cause false alarms or missed anomalies.
-- MVTec dataset licenses restrict commercial use and redistribution.
-- No backend or client security controls exist because those components have not been implemented.
+- Current artifacts depend on trusted PyTorch tensor serialization.
+- Artifact metadata does not fully describe all preprocessing semantics and pretrained-weight identity.
+- Exact nearest-neighbor search over complete memory is computationally and memory intensive.
+- Multiple service workers would duplicate approximately 410.16 MiB of feature memory each.
+- The current process-local prediction lock limits concurrency.
+- The threshold rule may not generalize equally across categories or deployment conditions.
+- Test data influenced exploratory decisions, so benchmark numbers are not unbiased final estimates.
+- Heatmaps have not been validated through pixel-level metrics.
+- A model fitted on one category shall not be assumed to work on another.
+- Lighting, alignment, camera, material, and production changes may cause errors.
+- HTTP and process boundaries add deployment and lifecycle complexity.
+- The internal service lacks production hardening and readiness behavior.
+- MVTec licenses restrict commercial use and redistribution.
+- Web and desktop clients do not yet exist.
+- The system is not validated for autonomous production decisions.
 
 ## Open Decisions
 
-- Which additional MVTec AD categories should form the next generalization benchmark?
-- Which pixel-level metrics should be the required localization acceptance measures?
-- Should the next optimization use a principled coreset method, an indexed nearest-neighbor library, or both?
-- Should the production boundary use ONNX Runtime inside .NET or keep Python inference behind a service boundary?
-- How should complete preprocessing metadata be represented in the next artifact schema?
-- Which artifact integrity and version-compatibility controls are required?
-- Which backend API result schema best represents heatmaps or localization output?
-- Which web framework and desktop technology will be used?
+- Which additional MVTec AD categories should be evaluated next?
+- Which pixel-level metrics should become localization acceptance measures?
+- Should optimization use a principled coreset, indexed search, or both?
+- How should complete preprocessing and weight identity be represented in artifact metadata?
+- Which checksum and compatibility controls are required?
+- What readiness, timeout, cancellation, and retry policies should apply?
+- How should the Python service be packaged, supervised, and network-isolated?
+- How should heatmaps or localization references enter the public backend response?
+- When should web and desktop client implementation begin?
 
 ## Delivery Stages
 
-1. **Dataset and model foundation – completed:** validated datasets, deterministic splits, preprocessing, frozen feature extraction, patch embeddings, feature memory, scoring, and tests.
-2. **Evaluation and visualization baseline – completed:** image-level metrics, aggregation comparison, group analysis, and heatmap overlays.
-3. **Python artifact and inference MVP – completed:** versioned artifact, exporter, loader, inference API, and CLI.
-4. **Model hardening – next:** broader category evaluation, pixel-level metrics, improved performance strategy, and final portable model export.
-5. **Backend MVP – planned:** ASP.NET Core inference API and operational safeguards.
-6. **Client MVPs – planned:** separate web and desktop clients using the shared API.
-7. **Portfolio release – planned:** verified setup, documentation, demonstrations, and clearly scoped limitations.
+1. **Dataset and model foundation – completed:** validation, splits, preprocessing, frozen extraction, embeddings, memory, scoring, and tests.
+2. **Evaluation and visualization baseline – completed:** metrics, aggregation comparison, grouped analysis, and overlays.
+3. **Python artifact and inference MVP – completed:** artifact, exporter, loader, inference APIs, and CLI.
+4. **Internal inference-service MVP – completed:** FastAPI runtime, liveness, prediction contract, and tests.
+5. **Backend integration MVP – completed:** ASP.NET Core analysis endpoint, upload validation, Python adapter, and verified end-to-end request.
+6. **Service and backend hardening – active:** readiness, errors, timeouts, logging, packaging, and contract coverage.
+7. **Client MVPs – planned:** separate web and desktop clients using the backend.
+8. **Portfolio release expansion – planned:** demonstrations, Model Card, updated releases, and clearly scoped limitations.
 
 ## Related Documentation
 
@@ -423,4 +502,4 @@ Random sampling reduced memory and runtime but also reduced Capsule recall. Comp
 
 ## Last Updated
 
-2026-08-13
+2026-08-14

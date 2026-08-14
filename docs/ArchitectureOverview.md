@@ -4,27 +4,27 @@
 
 This document describes the implemented and intended architecture of the Industrial Visual Anomaly Detection system.
 
-The architecture separates:
+The system separates:
 
 - external dataset storage and validation;
-- Python model development, evaluation, export, and reference inference;
-- versioned model artifacts;
-- a future client-neutral .NET inference backend;
+- Python model development, evaluation, artifact export, and inference execution;
+- an internal FastAPI inference service;
+- a separate client-neutral ASP.NET Core backend;
 - future web and desktop clients.
 
-The Python reference pipeline is now implemented end to end. It can fit a normal feature memory, select a validation threshold, evaluate MVTec AD categories, export and load model artifacts, and classify individual images. The .NET backend and client applications remain target architecture rather than implemented components.
+The Python model pipeline, artifact format, CLI inference, internal HTTP inference service, and first backend-to-model request path are implemented. Web and desktop clients remain future components.
 
 ## Architecture Status
 
 This document uses three status categories:
 
 - **Implemented and verified** – demonstrated through executable code, automated tests, or recorded experiments;
-- **Selected direction** – established as the current target but not yet complete across runtimes;
+- **Selected direction** – established as the current target but not yet complete;
 - **Open** – requires further design, implementation, or evaluation.
 
 ### Implemented and Verified
 
-- Python 3.12 CPU-based model development environment;
+- Python 3.12 CPU-based model-development and inference environment;
 - validation of MVTec AD, MVTec LOCO AD, and MVTec AD 2;
 - optional schema-versioned JSON validation reports;
 - deterministic category-specific fitting and validation manifests;
@@ -39,30 +39,41 @@ This document uses three status categories:
 - grouped image-level evaluation;
 - anomaly-map and heatmap generation;
 - deterministic random feature-memory sampling experiments;
-- model-artifact export and loading;
-- single-image inference and a prediction CLI;
-- provisional ONNX feature-extractor export and PyTorch/ONNX parity;
-- 54 passing automated tests.
+- model-artifact export, validation, and loading;
+- file-path and binary-stream inference;
+- single-image prediction CLI;
+- internal FastAPI service with startup-time artifact loading;
+- liveness and multipart prediction endpoints;
+- serialized access to the shared inference runtime;
+- separate ASP.NET Core backend with an HTTP adapter for the Python service;
+- successful local end-to-end prediction through ASP.NET Core and FastAPI;
+- provisional ONNX feature-extractor export and earlier PyTorch/ONNX parity work;
+- 65 passing automated tests in the Python repository.
 
 ### Selected Direction
 
-- the current reference model is MVTec AD Capsule at 320 × 320;
+- the current reference model is MVTec AD Capsule at 320 x 320;
 - the reference configuration uses complete feature memory and top-one-percent mean aggregation;
-- Python remains the reference implementation for fitting, evaluation, and artifact production;
-- ONNX is the intended neural feature-extractor format for .NET interoperability;
-- a future ASP.NET Core backend should expose one client-neutral inference contract;
-- future React and WPF clients should consume the same backend;
-- model, backend, web, and desktop concerns should remain independently versioned where practical.
+- Python remains the authoritative runtime for fitting, evaluation, artifact production, and model inference;
+- a long-running FastAPI process provides the internal inference boundary;
+- ASP.NET Core owns the public application API, validation, error mapping, and client-neutral contracts;
+- React and WPF clients should consume the ASP.NET Core backend rather than call Python directly;
+- model, backend, web, and desktop concerns remain independently versioned in separate repositories;
+- ONNX remains an optional portability and optimization path rather than a prerequisite for backend integration.
 
 ### Open
 
+- service readiness behavior and structured internal error responses;
+- additional defense-in-depth validation inside the Python service;
+- cancellation, timeout, concurrency, and throughput policies;
+- service packaging, deployment, and process supervision;
+- authentication or network isolation for the internal service boundary;
 - framework-neutral feature-memory serialization;
 - complete preprocessing metadata in the artifact contract;
-- packaging ONNX, feature memory, metadata, checksums, and evaluation results;
+- checksums and stronger artifact integrity validation;
 - approximate nearest-neighbor or coverage-preserving coreset optimization;
-- pixel-level metric selection and anomaly-map post-processing;
-- Python/.NET numerical parity for the complete pipeline;
-- backend persistence, authentication, deployment, and artifact distribution.
+- pixel-level metrics and anomaly-map post-processing;
+- backend persistence and client implementation.
 
 ## Architectural Goals
 
@@ -71,36 +82,46 @@ The architecture should:
 - keep model research independent from presentation technology;
 - keep datasets and generated artifacts outside source control;
 - make splits, fitting, thresholds, and experiments reproducible;
-- preserve preprocessing and scoring semantics across runtimes;
+- preserve preprocessing and scoring semantics in the authoritative Python runtime;
+- avoid loading the model artifact for every request;
 - support image-level detection and patch-level localization;
-- expose stable, client-neutral results;
+- expose stable, client-neutral results through ASP.NET Core;
 - keep CPU inference viable;
 - make artifacts versioned, traceable, and compatible with their runtime;
 - prevent test data from influencing fitting or threshold selection;
 - support future model replacement without rewriting clients;
+- isolate Python model failures from public API contracts;
 - distinguish an experimental benchmark system from a validated industrial inspection system.
 
 ## System Context
 
 ```text
 External datasets
-        ↓
-Python model-development repository
-        ↓
-Evaluated model artifact
-        ↓
-Future .NET inference backend
-        ↓
-Client-neutral API
-        ↓
-React web client      WPF desktop client
+        |
+        v
+Python model-development pipeline
+        |
+        v
+Evaluated Python/PyTorch artifact
+        |
+        v
+Internal FastAPI inference service
+        |
+        v
+ASP.NET Core backend
+        |
+        v
+Client-neutral public API
+        |
+        +--> future web client
+        `--> future desktop client
 ```
 
-The current repository implements the Python portion and a local artifact format. It does not yet provide the .NET runtime or client applications.
+The Python repository owns model behavior. The backend repository owns application-facing HTTP behavior. Clients do not duplicate model preprocessing, scoring, or threshold rules.
 
 ## Repository Boundaries
 
-The preferred long-term separation is:
+The intended repository separation is:
 
 ```text
 industrial-visual-anomaly-detection-model
@@ -109,7 +130,7 @@ industrial-visual-anomaly-detection-web
 industrial-visual-anomaly-detection-desktop
 ```
 
-Only the model repository currently exists.
+The model and backend repositories exist. Web and desktop repositories remain planned.
 
 ### Model Repository
 
@@ -119,34 +140,36 @@ The model repository owns:
 - deterministic split creation;
 - preprocessing experiments and implementation;
 - feature extraction and patch embeddings;
-- feature-memory creation and experiments;
+- feature-memory creation and sampling experiments;
 - anomaly scoring, threshold selection, and evaluation;
 - heatmap generation;
-- ONNX feasibility and parity checks;
-- model-artifact export, loading, and reference inference;
+- ONNX feasibility experiments;
+- artifact export, loading, validation, and reference inference;
+- the internal FastAPI service and its model-runtime lifecycle;
+- the internal prediction response expected by the backend;
 - experiment and artifact metadata design.
 
-It must not own ASP.NET Core hosting, WPF or React presentation code, production authentication, or operational database persistence.
+It does not own public client contracts, ASP.NET Core hosting, UI presentation, authentication, or application persistence.
 
-### Future Backend Repository
+### Backend Repository
 
-The backend should own:
+The backend repository owns:
 
-- artifact discovery, validation, and persistent loading;
-- production preprocessing equivalent to Python;
-- ONNX Runtime integration;
-- patch-embedding construction;
-- feature-memory search and score aggregation;
-- threshold application and anomaly-map production;
-- stable request and response contracts;
-- optional inspection-history persistence;
-- health, diagnostics, security controls, and observability.
+- public upload validation and request-size policy;
+- versioned client-neutral analysis endpoints;
+- application-level inference abstraction;
+- the HTTP adapter to the internal Python service;
+- configuration of the Python service address and timeout;
+- mapping internal failures to stable Problem Details responses;
+- trace identifiers and processing-time reporting;
+- liveness and readiness endpoints;
+- future persistence, authentication, observability, and deployment concerns.
+
+The backend does not reproduce PyTorch preprocessing, embeddings, nearest-neighbor search, or threshold logic.
 
 ### Future Web and Desktop Repositories
 
-Clients should own image selection, previews, request submission, result visualization, history views, platform-specific interaction, and presentation tests. They must not duplicate preprocessing, scoring, or threshold rules.
-
-The first WPF client should consume the backend API. Offline desktop inference remains optional future work.
+Clients should own image selection, previews, request submission, result visualization, history views, platform-specific interaction, and presentation tests. They must call the backend rather than the internal Python service.
 
 ## Current Model Repository Structure
 
@@ -168,6 +191,12 @@ src/
     artifacts/
     datasets/
     models/
+    service/
+      app.py
+      prediction_response.py
+      prediction_routes.py
+      runtime.py
+      settings.py
     evaluation.py
     inference.py
     preprocessing.py
@@ -181,45 +210,50 @@ README.md
 requirements.txt
 ```
 
-Virtual environments, datasets, reports, caches, ONNX exports, model artifacts, and experiment outputs are excluded from version control.
+Virtual environments, datasets, reports, caches, ONNX exports, model artifacts, heatmaps, and experiment outputs are excluded from version control.
 
 ## Python Model Architecture
 
 ```text
 validated normal images
-        ↓
+        |
+        v
 deterministic fitting and validation manifest
-        ↓
+        |
+        v
 category configuration and preprocessing
-        ↓
+        |
+        v
 frozen pretrained ResNet18
-        ↓
+        |
+        v
 layer2 and layer3 feature maps
-        ↓
+        |
+        v
 384-dimensional patch embeddings
-        ↓
+        |
+        v
 complete or sampled normal feature memory
-        ↓
+        |
+        v
 exact chunked nearest-neighbor distances
-        ↓
+        |
+        v
 patch-score grid
-        ↓
+        |
+        v
 image-score aggregation
-        ↓
+        |
+        v
 normal-validation threshold
-        ↓
+        |
+        v
 decision, evaluation, heatmap, and artifact export
 ```
 
 ### Dataset Boundary
 
-Datasets are stored outside the repository under:
-
-```text
-C:/dev/data/industrial-visual-anomaly-detection/
-```
-
-Runtime commands receive the local root explicitly. Public configuration and manifests do not contain machine-specific dataset roots.
+Datasets are stored outside the repository. Runtime commands receive the local root explicitly, and public configuration does not contain machine-specific dataset roots.
 
 Validators check relevant combinations of expected structure, inventories, image readability, dimensions, modes, mask naming, mask dimensions, and mask content. Successful validation can produce ignored local JSON reports.
 
@@ -244,13 +278,13 @@ The implemented preprocessing performs:
 - tensor conversion;
 - ImageNet normalization.
 
-Bottle uses 224 × 224. The selected Capsule reference uses 320 × 320. Direct resizing was selected for Bottle because center cropping removed object-boundary information.
+Bottle uses 224 x 224. The Capsule reference uses 320 x 320. Direct resizing was selected for Bottle because center cropping removed object-boundary information.
 
-The artifact currently stores the input size. Mean, standard deviation, interpolation, antialiasing, and RGB conversion remain defined by the versioned Python implementation. A cross-runtime artifact must store these semantics explicitly.
+The artifact currently stores the input size. Mean, standard deviation, interpolation, antialiasing, and RGB conversion remain defined by the versioned Python implementation. A more portable artifact must store these semantics explicitly.
 
 ### Feature Extractor and Patch Embeddings
 
-For 224 × 224 input:
+For 224 x 224 input:
 
 ```text
 layer2:          (1, 128, 28, 28)
@@ -258,7 +292,7 @@ layer3:          (1, 256, 14, 14)
 patch embeddings:      (784, 384)
 ```
 
-For 320 × 320 input:
+For 320 x 320 input:
 
 ```text
 layer2:          (1, 128, 40, 40)
@@ -272,7 +306,7 @@ patch embeddings:     (1600, 384)
 
 The feature memory contains normal fitting embeddings and is part of the fitted model state. It must never be combined with incompatible preprocessing, backbone weights, feature layers, dimensions, or input resolution.
 
-The selected Capsule artifact contains:
+The Capsule artifact contains:
 
 ```text
 shape: (280000, 384)
@@ -280,19 +314,19 @@ dtype: float32
 size:  approximately 410.16 MiB
 ```
 
-Deterministic random sampling at 75%, 50%, and 25% reduced runtime but degraded recall. Complete memory remains the reference configuration. Smarter coreset selection is open.
+Deterministic random sampling at 75%, 50%, and 25% reduced runtime but degraded recall. Complete memory remains the reference configuration. Smarter coreset selection remains open.
 
 ### Nearest-Neighbor Scoring
 
 For every query patch, the implementation computes its Euclidean distance to the nearest normal feature-memory entry. Memory is processed in configurable chunks to bound temporary distance tensors while preserving exact results.
 
-Distances are reshaped into a patch grid. Supported image aggregation includes the maximum patch score and the mean of the highest configurable fraction. Top-one-percent mean is selected for the Capsule reference artifact.
+Distances are reshaped into a patch grid. Supported image aggregation includes the maximum patch score and the mean of the highest configurable fraction. Top-one-percent mean is selected for the Capsule artifact.
 
 ### Threshold and Evaluation
 
 The threshold is selected exclusively from normal validation images as their maximum image-level score. Only scores strictly above the threshold are anomalous.
 
-Official test labels and masks are not used for fitting or threshold calculation. Test-folder names support grouped analysis. The current metrics include confusion-matrix counts, accuracy, precision, recall, F1, per-group detection rates, and runtime measurements.
+Official test labels and masks are not used for fitting or threshold calculation. Test-folder names support grouped analysis. Current metrics include confusion-matrix counts, accuracy, precision, recall, F1, per-group detection rates, and runtime measurements.
 
 Bottle and Capsule results are exploratory because their test partitions were inspected during development. Pixel-level evaluation remains open.
 
@@ -314,7 +348,7 @@ model-artifact/
   feature_memory.pt
 ```
 
-The typed metadata contains:
+Typed metadata contains:
 
 - schema version;
 - dataset and category;
@@ -326,9 +360,9 @@ The typed metadata contains:
 - memory fraction and sampling seed;
 - feature-memory entry count.
 
-The writer validates shape, finite values, entry count, and embedding dimension. The loader verifies the required files, reconstructs the typed metadata, loads the tensor on CPU with `weights_only=True`, and validates the tensor type, dimensionality, finite values, entry count, and embedding dimension.
+The writer validates shape, finite values, entry count, and embedding dimension. The loader verifies required files, reconstructs typed metadata, loads the tensor on CPU with `weights_only=True`, and validates tensor type, dimensionality, finite values, entry count, and embedding dimension.
 
-The local format is sufficient for Python reference inference but is not yet framework-neutral.
+The local format is sufficient for trusted Python inference but is not framework-neutral. Artifacts are generated locally, ignored by Git, and must not be accepted from untrusted upload sources.
 
 ### Reference Capsule Artifact
 
@@ -336,8 +370,8 @@ The local format is sufficient for Python reference inference but is not yet fra
 dataset:                mvtec-ad
 category:               capsule
 backbone:               resnet18
-input size:             320 × 320
-patch grid:             40 × 40
+input size:             320 x 320
+patch grid:             40 x 40
 embedding dimension:    384
 feature-memory entries: 280000
 aggregation:            top_fraction_mean
@@ -346,136 +380,174 @@ memory fraction:        1.0
 threshold:              2.501821517944336
 ```
 
-The generated artifact is stored under `outputs/model-artifacts/` and ignored by Git.
+### Future Artifact Evolution
 
-### Intended Cross-Runtime Package
-
-A future release package should evolve toward:
+A future portable package may include:
 
 ```text
 model-package/
   feature-extractor.onnx
-  feature-memory.<framework-neutral-format>
+  feature-memory.<portable-format>
   model-metadata.json
   evaluation-summary.json
   checksums.txt
   notices/
 ```
 
-Metadata must additionally identify the pretrained weight version, feature layers, complete preprocessing semantics, split manifest, software versions, artifact version, license attribution, and evaluation context.
+This is an optional portability path, not the current backend integration requirement. Metadata should eventually identify the pretrained weight version, feature layers, full preprocessing semantics, split manifest, software versions, artifact version, license attribution, and evaluation context.
 
-The consuming runtime must reject unsupported schema versions, missing files, incompatible dimensions, and invalid checksums.
+## Python Inference APIs
 
-## Reference Inference Architecture
+Two inference entry points share the same model behavior:
 
-The implemented Python inference flow is:
+- `predict_image` accepts a filesystem path and supports CLI workflows;
+- `predict_image_stream` accepts a binary stream and supports HTTP uploads without temporary path coupling.
 
-```text
-artifact directory + image
-        ↓
-load metadata and feature memory
-        ↓
-create frozen ResNet18 extractor
-        ↓
-decode, convert, resize, and normalize image
-        ↓
-extract patch embeddings
-        ↓
-exact nearest-neighbor scoring
-        ↓
-top-fraction aggregation
-        ↓
-compare score with stored threshold
-        ↓
-AnomalyPrediction
-```
+Both return scores generated by the same preprocessing, extractor, feature memory, aggregation, and stored threshold. Path and stream inference were verified to produce identical score, threshold, and decision for the same Capsule image.
 
-`AnomalyPrediction` contains the resolved image path, score, threshold, Boolean decision, and patch-score map. `scripts/predict_image.py` exposes this flow through a CLI.
+## Internal FastAPI Service
 
-Verified Capsule predictions took approximately 1.44–1.46 seconds each on the current CPU, excluding the separately measured artifact load and extractor creation time. A persistent service should initialize the artifact and extractor once and reuse them.
+### Runtime Lifecycle
 
-## Future .NET Runtime Architecture
+At application startup:
+
+1. `InferenceServiceSettings` reads and validates environment configuration;
+2. `InferenceRuntime.load` loads the artifact once;
+3. the frozen ResNet18 patch-embedding extractor is created once;
+4. the runtime is stored in FastAPI application state;
+5. subsequent requests reuse the loaded artifact and extractor.
+
+The current environment variables are:
 
 ```text
-ASP.NET Core API
-        ↓
-application orchestration
-        ↓
-inspection domain model
-        ↓
-model runtime abstraction
-        ↓
-ONNX Runtime + feature memory + scoring
+IVAD_MODEL_ARTIFACT
+IVAD_MEMORY_CHUNK_SIZE
 ```
 
-### Domain
+The artifact path is required. The memory chunk size defaults to `4096` and must be a positive integer.
 
-The domain should represent inspection requests and results, anomaly decisions, scores, patch maps or result references, model identity, and validation failures. It must not depend on ASP.NET Core, WPF, React, ONNX Runtime, or a database provider.
+### Concurrency Policy
 
-### Application
+`InferenceRuntime` protects prediction execution with a process-local lock. This conservative first implementation prevents concurrent use of the shared extractor and large feature memory. It prioritizes correctness and predictable resource use over throughput.
 
-The application layer should coordinate request validation, decoding, model selection, inference, optional persistence, and response creation.
+Concurrency benchmarking and a deliberate worker policy are required before increasing parallelism. Multiple Uvicorn workers would independently load the approximately 410 MiB feature memory and therefore multiply memory consumption.
 
-### Model Runtime
+### Internal HTTP Contract
 
-The runtime should own artifact validation, persistent loading, ONNX session creation, preprocessing, feature-output validation, embedding construction, nearest-neighbor search, aggregation, heatmaps, and threshold application. It should be independently testable without API hosting.
-
-### Infrastructure
-
-Infrastructure may provide file-system artifact storage, inspection-history persistence, image storage, identifiers, clocks, logging, and configuration.
-
-### API
-
-The API should provide client-neutral operations for inspecting an image, retrieving model information, accessing optional history, and reporting health and readiness.
-
-## Intended Request Flow
+Liveness:
 
 ```text
-client submits image
-        ↓
-API validates payload and selects compatible artifact
-        ↓
-runtime decodes and preprocesses image
-        ↓
-ONNX extractor produces feature maps
-        ↓
-runtime creates patch embeddings
-        ↓
-nearest-neighbor search produces patch scores
-        ↓
-aggregation and threshold produce decision
-        ↓
-application creates client-neutral response
-        ↓
-optional persistence records inspection metadata
-        ↓
-client renders decision, score, and overlay
+GET /health/live
 ```
+
+Prediction:
+
+```text
+POST /api/v1/predictions
+Content-Type: multipart/form-data
+Field: image
+```
+
+Example prediction response:
+
+```json
+{
+  "modelId": "mvtec-ad-capsule-320",
+  "category": "capsule",
+  "score": 4.992109298706055,
+  "threshold": 2.501821517944336,
+  "isAnomalous": true
+}
+```
+
+The artifact directory name currently acts as `modelId`. The endpoint is internal and does not replace the public backend contract.
+
+## ASP.NET Core Integration
+
+The implemented request path is:
+
+```text
+client uploads image
+        |
+        v
+ASP.NET Core POST /api/v1/analyses
+        |
+        v
+public upload validation and application orchestration
+        |
+        v
+PythonServiceAnomalyAnalyzer
+        |
+        v
+multipart HTTP request to FastAPI POST /api/v1/predictions
+        |
+        v
+InferenceRuntime performs Python/PyTorch prediction
+        |
+        v
+internal prediction response
+        |
+        v
+backend maps result to client-neutral response
+```
+
+A verified local anomalous Capsule request returned:
+
+```json
+{
+  "model": {
+    "id": "mvtec-ad-capsule-320",
+    "category": "capsule"
+  },
+  "score": 4.992109298706055,
+  "threshold": 2.501821517944336,
+  "decision": "anomalous",
+  "processingTimeMs": 1802,
+  "traceId": "<request-trace-id>"
+}
+```
+
+The backend maps service unavailability and transport failures to its public error contract. Controllers depend on an application abstraction instead of directly depending on HTTP or Python details.
+
+## Boundary Rationale
+
+The Python-service approach was selected over embedding Python into the .NET process or immediately rewriting the complete pipeline in .NET because it:
+
+- preserves the verified PyTorch implementation;
+- avoids premature cross-runtime preprocessing and scoring parity work;
+- keeps the large feature memory loaded in one long-running model process;
+- isolates Python dependencies and failures from the public API process;
+- provides a language-neutral HTTP boundary;
+- allows backend and model repositories to evolve independently;
+- leaves ONNX or native .NET inference available as later optimization options.
+
+The trade-offs are an additional process, local HTTP overhead, service lifecycle management, and the need for timeouts and operational health checks.
 
 ## Client-Neutral Result Contract
 
-Appropriate fields include:
+The backend response may contain:
 
-- inspection identifier;
-- model and artifact version;
-- category;
+- model identity and category;
 - anomaly score and threshold;
 - normal/anomalous decision;
-- anomaly-map or overlay reference;
 - processing duration;
-- warnings and validation messages.
+- trace identifier;
+- future anomaly-map or overlay references;
+- stable validation and failure details.
 
-The backend must not return UI-specific instructions such as colors, tab selection, dialogs, WPF commands, or React component names.
+Neither the backend nor the Python service should return UI-specific instructions such as colors, tabs, dialogs, WPF commands, or React component names.
 
 ## Configuration and Persistence
 
-Configuration must separate public defaults, local overrides, deployment values, and secrets. Reproducibility-critical model behavior belongs in artifact metadata rather than only environment configuration.
+Configuration separates public defaults, local overrides, deployment values, and secrets. Reproducibility-critical model behavior belongs in artifact metadata rather than only environment configuration.
 
-Optional inspection persistence may record identifiers, timestamps, model versions, image references or checksums, scores, thresholds, decisions, durations, and failures. Raw image retention must be optional and governed by explicit privacy and retention rules.
+Optional future inspection persistence may record identifiers, timestamps, model versions, image references or checksums, scores, thresholds, decisions, durations, and failures. Raw image retention must be optional and governed by explicit privacy and retention rules.
 
 ## Security and Safety
 
-The future backend must treat images and artifacts as untrusted inputs. Required safeguards include media validation, bounded upload and decoded dimensions, controlled temporary storage, cancellation, timeouts, schema validation, checksum validation, and safe errors.
+The backend is the public trust boundary and must apply upload limits, content-type policy, stable errors, timeouts, and controlled forwarding. The Python service should still implement defense-in-depth validation for malformed or unsupported content.
+
+Model artifacts are trusted deployment inputs because the current format uses PyTorch tensor serialization. Artifact paths must come from controlled configuration, not user input.
 
 The project must not be represented as a validated production quality-control system without domain validation, controlled deployment, regulatory assessment where applicable, and operational monitoring.
 
@@ -483,36 +555,63 @@ The project must not be represented as a validated production quality-control sy
 
 ### Implemented Python Tests
 
-The current 54 tests cover manifests, dataset discovery, preprocessing, embeddings, feature memory, sampling, nearest-neighbor distances, scoring, aggregation, metrics, visualization, and artifact persistence.
+The current 65 tests cover:
 
-### Additional Python Tests
+- manifests and dataset discovery;
+- preprocessing;
+- feature extraction and patch embeddings;
+- feature-memory construction and sampling;
+- nearest-neighbor distances;
+- anomaly scoring and aggregation;
+- evaluation metrics;
+- visualization;
+- artifact persistence;
+- service-facing inference integration;
+- service settings;
+- runtime loading and reuse;
+- FastAPI lifespan and liveness behavior;
+- prediction response mapping and missing-upload validation.
 
-Next coverage should include single-image inference behavior, artifact schema compatibility, malformed metadata, CLI result serialization, and experiment-report generation.
+Large artifacts and licensed datasets are not available in CI. Real artifact startup and the complete cross-process path are therefore verified locally rather than in the standard unit-test workflow.
 
-### Future Cross-Runtime Tests
+### Backend Tests
 
-Fixed fixtures should compare Python and .NET results for preprocessing tensors, ONNX features, patch embeddings, nearest-neighbor distances, aggregated scores, maps, and threshold decisions.
+The backend separately tests health endpoints, Problem Details, configuration binding, upload validation, analysis behavior, service response mapping, and service failure handling.
 
-### Future API and Client Tests
+### Next Integration Coverage
 
-API tests should cover valid requests, malformed images, unsupported media, payload limits, unavailable artifacts, cancellation, and stable errors. Client tests should cover selection, submission, loading, success, error, history, and overlay rendering.
+Future tests should cover:
+
+- unsupported or malformed images at the Python boundary;
+- internal service error serialization;
+- readiness before and after artifact loading;
+- backend timeout and cancellation behavior;
+- a lightweight backend-to-service contract fixture suitable for CI;
+- artifact schema compatibility and corrupted metadata;
+- concurrent request behavior;
+- fixed-fixture regression scores for released artifacts.
 
 ## Observability and Deployment Direction
 
-The future backend should record artifact identity, preprocessing and inference duration, failures, outcomes, and resource use without exposing sensitive image content.
+The backend should record trace identifiers, model identity, total request duration, service failures, and public outcomes without exposing sensitive image content.
 
-Initial deployment should remain CPU-compatible. Potential modes include a self-contained .NET backend, central API hosting, WPF and React clients, and later optional offline desktop inference after parity is proven.
+The Python service should record startup state, artifact identity, prediction duration, failures, and resource use. Logs must not contain raw image content.
+
+Initial deployment remains CPU-compatible and may run the backend and Python service as separately supervised local processes or containers. Production packaging, network restrictions, readiness probes, graceful shutdown, and artifact provisioning remain open.
 
 ## Known Architectural Risks
 
 - complete feature memories are large;
 - exact CPU nearest-neighbor search may limit throughput;
+- multiple service workers duplicate the feature memory in RAM;
+- the current serialized prediction lock limits concurrency;
 - random sampling reduces quality on Capsule;
-- preprocessing mismatch can invalidate cross-runtime results;
 - small defects may require higher input resolution;
 - non-square categories need a deliberate resize policy;
 - threshold or hyperparameter selection can leak test information;
-- ONNX represents the neural extractor, not automatically the complete pipeline;
+- service and backend contracts require coordinated versioning;
+- process startup fails when the configured artifact is absent or incompatible;
+- HTTP and process boundaries add deployment complexity;
 - artifact evolution requires schema and compatibility management;
 - dataset licenses constrain redistribution and commercial use;
 - benchmark results may not transfer to real industrial imagery;
@@ -520,12 +619,14 @@ Initial deployment should remain CPU-compatible. Potential modes include a self-
 
 ## Current Non-Goals
 
-- production deployment;
+- production deployment certification;
 - real-time camera or PLC integration;
-- authentication and a production database;
+- a production database and authentication system;
 - implemented web or desktop UI;
 - supervised defect-type classification;
 - automated retraining or multi-model orchestration;
+- public exposure of the FastAPI service;
+- untrusted artifact uploads;
 - regulatory validation;
 - real pharmaceutical packaging validation.
 
@@ -533,30 +634,35 @@ Initial deployment should remain CPU-compatible. Potential modes include a self-
 
 1. Reproducible Python environment and dependency setup.
 2. CPU-based pretrained ResNet18 and intermediate feature extraction.
-3. Patch embeddings and ONNX feasibility with parity checks.
+3. Patch embeddings and ONNX feasibility experiments.
 4. Acquisition and validation of three MVTec datasets.
 5. Machine-readable dataset reports.
 6. Deterministic Bottle and Capsule manifests.
 7. Reusable dataset, preprocessing, model, scoring, evaluation, and visualization modules.
 8. Bottle baseline and Capsule generalization evaluation.
 9. Configurable resolution and aggregation experiments.
-10. Feature-memory sampling implementation and tradeoff evaluation.
+10. Feature-memory sampling implementation and trade-off evaluation.
 11. Typed artifact metadata, writer, loader, and round-trip tests.
-12. Export of the complete 320 × 320 Capsule reference artifact.
+12. Export of the complete 320 x 320 Capsule reference artifact.
 13. Verified normal and anomalous single-image CLI inference.
+14. Binary-stream inference with parity against path-based inference.
+15. FastAPI service with startup-time artifact and extractor initialization.
+16. Internal liveness and multipart prediction endpoints.
+17. ASP.NET Core HTTP adapter to the Python inference service.
+18. Verified end-to-end anomalous Capsule request through both processes.
 
 ## Immediate Architectural Steps
 
-1. Consolidate the remaining strategy, specification, and README documents.
-2. Add inference and artifact-compatibility tests.
-3. Define the complete framework-neutral artifact schema.
-4. Export and verify the selected 320 × 320 ONNX extractor.
-5. Select a framework-neutral feature-memory format.
-6. Add checksums and machine-readable evaluation summaries.
-7. Verify full Python artifact reproducibility from a clean environment.
-8. Build a minimal .NET console parity spike before designing the web API.
-9. Finalize the backend boundary only after parity is demonstrated.
-10. Add clients after the backend contract is stable.
+1. Add Python-service readiness based on initialized runtime state.
+2. Define structured internal errors and malformed-image behavior.
+3. Add defense-in-depth content validation at the Python boundary.
+4. Define backend timeout, cancellation, and retry policy explicitly.
+5. Add service timing and structured logging.
+6. Create a reproducible local startup workflow for both processes.
+7. Add lightweight cross-service contract coverage where practical.
+8. Continue the public backend analysis contract and error handling.
+9. Evaluate deployment packaging and artifact provisioning.
+10. Begin client work only after the public backend contract is sufficiently stable.
 
 ## Related Documentation
 
@@ -568,4 +674,4 @@ Initial deployment should remain CPU-compatible. Potential modes include a self-
 
 ## Last Updated
 
-This architecture reflects the verified project state as of 2026-08-13.
+This architecture reflects the verified project state as of 2026-08-14.
