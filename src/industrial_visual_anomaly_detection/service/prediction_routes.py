@@ -1,4 +1,5 @@
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from PIL import UnidentifiedImageError
 
 from .prediction_response import PredictionResponse
 from .runtime import InferenceRuntime
@@ -17,7 +18,14 @@ def create_prediction(
     """Analyze one uploaded image using the loaded model runtime."""
 
     runtime: InferenceRuntime = request.app.state.inference_runtime
-    prediction = runtime.predict(image.file)
+
+    try:
+        prediction = runtime.predict(image.file)
+    except (UnidentifiedImageError, OSError) as error:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is not a readable image.",
+        ) from error
 
     return PredictionResponse(
         modelId=runtime.model_id,

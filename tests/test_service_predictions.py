@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from industrial_visual_anomaly_detection.service.app import create_app
 
+from PIL import UnidentifiedImageError
+
 
 class PredictionEndpointTests(unittest.TestCase):
     def test_uploaded_image_returns_prediction_response(self) -> None:
@@ -53,6 +55,32 @@ class PredictionEndpointTests(unittest.TestCase):
 
         self.assertEqual(422, response.status_code)
         runtime.predict.assert_not_called()
+
+    def test_unreadable_image_returns_bad_request(self) -> None:
+        runtime = Mock()
+        runtime.predict.side_effect = UnidentifiedImageError(
+            "cannot identify image file"
+        )
+        app = create_app(runtime=runtime)
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/predictions",
+                files={
+                    "image": (
+                        "invalid.png",
+                        b"\x89PNG\r\n\x1a\n",
+                        "image/png",
+                    )
+                },
+            )
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual(
+            {"detail": "Uploaded file is not a readable image."},
+            response.json(),
+        )
+        runtime.predict.assert_called_once()
 
 
 if __name__ == "__main__":
