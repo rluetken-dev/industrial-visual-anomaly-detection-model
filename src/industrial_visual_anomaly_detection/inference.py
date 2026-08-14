@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 import torch
 from PIL import Image
@@ -13,8 +14,18 @@ from .preprocessing import create_image_preprocessing
 
 
 @dataclass(frozen=True)
+class AnomalyPredictionResult:
+    """Contain an anomaly-detection result independent of its image source."""
+
+    anomaly_score: float
+    threshold: float
+    is_anomalous: bool
+    patch_scores: torch.Tensor
+
+
+@dataclass(frozen=True)
 class AnomalyPrediction:
-    """Contain the anomaly-detection result for one image."""
+    """Contain the anomaly-detection result for one image path."""
 
     image_path: Path
     anomaly_score: float
@@ -23,20 +34,13 @@ class AnomalyPrediction:
     patch_scores: torch.Tensor
 
 
-def predict_image(
+def predict_image_stream(
     artifact: ModelArtifact,
-    image_path: Path,
+    image_stream: BinaryIO,
     embedding_extractor: torch.nn.Module,
     memory_chunk_size: int = 4096,
-) -> AnomalyPrediction:
-    """Predict whether one image contains a visual anomaly."""
-
-    resolved_image_path = image_path.resolve()
-
-    if not resolved_image_path.is_file():
-        raise FileNotFoundError(
-            f"Image does not exist: {resolved_image_path}"
-        )
+) -> AnomalyPredictionResult:
+    """Predict whether an image read from a binary stream is anomalous."""
 
     if memory_chunk_size <= 0:
         raise ValueError(
@@ -58,7 +62,7 @@ def predict_image(
         )
     )
 
-    with Image.open(resolved_image_path) as source_image:
+    with Image.open(image_stream) as source_image:
         rgb_image = source_image.convert("RGB")
         image_tensor = preprocessing(rgb_image).unsqueeze(0)
 
@@ -82,10 +86,41 @@ def predict_image(
     anomaly_score = float(image_scores[0].item())
     is_anomalous = anomaly_score > metadata.threshold
 
-    return AnomalyPrediction(
-        image_path=resolved_image_path,
+    return AnomalyPredictionResult(
         anomaly_score=anomaly_score,
         threshold=metadata.threshold,
         is_anomalous=is_anomalous,
         patch_scores=score_batch.patch_scores[0].cpu(),
+    )
+
+
+def predict_image(
+    artifact: ModelArtifact,
+    image_path: Path,
+    embedding_extractor: torch.nn.Module,
+    memory_chunk_size: int = 4096,
+) -> AnomalyPrediction:
+    """Predict whether one image path contains a visual anomaly."""
+
+    resolved_image_path = image_path.resolve()
+
+    if not resolved_image_path.is_file():
+        raise FileNotFoundError(
+            f"Image does not exist: {resolved_image_path}"
+        )
+
+    with resolved_image_path.open("rb") as image_stream:
+        result = predict_image_stream(
+            artifact,
+            image_stream,
+            embedding_extractor,
+            memory_chunk_size=memory_chunk_size,
+        )
+
+    return AnomalyPrediction(
+        image_path=resolved_image_path,
+        anomaly_score=result.anomaly_score,
+        threshold=result.threshold,
+        is_anomalous=result.is_anomalous,
+        patch_scores=result.patch_scores,
     )
