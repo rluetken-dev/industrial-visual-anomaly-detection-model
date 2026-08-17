@@ -49,10 +49,11 @@ This document distinguishes between:
 - persistent FastAPI inference service;
 - startup-time artifact and feature-extractor initialization;
 - internal liveness and multipart prediction endpoints;
+- threshold-normalized RGB heatmaps encoded as Base64 PNG data in prediction responses;
 - ASP.NET Core integration through HTTP;
 - manually verified path/stream parity and end-to-end inference;
 - provisional ONNX export and earlier PyTorch/ONNX numerical parity;
-- 65 passing automated Python tests.
+- 68 passing automated Python tests.
 
 These capabilities establish a functioning reference implementation and application integration boundary. They do not establish production readiness, regulatory validation, real-world transfer, deployment hardening, or localization accuracy.
 
@@ -313,6 +314,8 @@ Nearest-neighbor distances are reconstructed as a patch grid. Visualization can 
 
 Fixed threshold-based normalization is preferred for comparison across images. Heatmap colors are presentation data and must not replace raw scores.
 
+For internal HTTP inference, the patch-score grid is threshold-normalized, resized to the configured model input dimensions, colorized as RGB, encoded as PNG, and transported as Base64 text. This representation is an explanation aid and remains separate from the raw anomaly score and decision.
+
 Quantitative localization metrics are not implemented. Any smoothing, normalization, or pixel threshold that affects metrics must be recorded as experiment configuration.
 
 ## Evaluation Strategy
@@ -450,11 +453,11 @@ GET  /health/live
 POST /api/v1/predictions
 ```
 
-The service response contains model ID, category, score, threshold, and Boolean anomaly decision. The artifact directory name currently supplies the model ID.
+The service response contains model ID, category, score, threshold, Boolean anomaly decision, and a nested threshold-normalized heatmap. The heatmap contract contains content type, width, height, and Base64-encoded PNG data. The artifact directory name currently supplies the model ID.
 
 Prediction execution is serialized with a process-local lock. This conservative baseline protects the shared runtime and bounds CPU and memory pressure. Parallel execution must not be enabled without measurement. Multiple service workers independently load the feature memory and multiply RAM use.
 
-The service is internal. ASP.NET Core owns public upload limits, client-facing validation, Problem Details, trace identifiers, and stable external contracts. Python should still gain defense-in-depth malformed-image validation and structured internal errors.
+The service is internal. ASP.NET Core owns public upload limits, client-facing validation, Problem Details, trace identifiers, and stable external contracts. Python rejects missing and unreadable image uploads; additional structured internal errors and broader defense-in-depth content policy remain open.
 
 ## Backend Integration Strategy
 
@@ -575,17 +578,18 @@ Service failures must additionally be separated into configuration, artifact loa
 15. Binary-stream inference with verified path parity.
 16. Persistent FastAPI runtime and prediction endpoint.
 17. Successful ASP.NET Core-to-Python end-to-end prediction.
+18. Threshold-normalized 320 x 320 RGB heatmap generation in the internal prediction response.
 
 ## Immediate Next Steps
 
-1. Add service readiness based on initialized runtime state.
-2. Define structured service errors and malformed-image handling.
-3. Add defense-in-depth content validation at the Python boundary.
-4. Add focused inference and artifact-compatibility regression tests.
-5. Define timeout, cancellation, retry, and concurrency policies.
-6. Add structured service timing and failure logging.
-7. Create a reproducible local startup workflow for both processes.
-8. Add machine-readable experiment summaries.
+1. Propagate service-generated heatmaps through the ASP.NET Core backend to the WPF desktop client.
+2. Verify the complete heatmap workflow with representative normal and anomalous Capsule images.
+3. Add multi-artifact loading or explicit category selection for Bottle and Capsule.
+4. Add service readiness based on initialized runtime state.
+5. Define structured service errors and broader defense-in-depth content policy.
+6. Add focused inference and artifact-compatibility regression tests.
+7. Define timeout, cancellation, retry, and concurrency policies.
+8. Add structured service timing and failure logging.
 9. Implement pixel-level Capsule evaluation.
 10. Add artifact checksums and clean-environment reconstruction.
 
@@ -599,4 +603,4 @@ Service failures must additionally be separated into configuration, artifact loa
 
 ## Last Updated
 
-This strategy reflects the verified project state and selected Capsule reference configuration as of 2026-08-14.
+This strategy reflects the verified project state and selected Capsule reference configuration as of 2026-08-17.

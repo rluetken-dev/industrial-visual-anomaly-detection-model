@@ -10,9 +10,10 @@ The system separates:
 - Python model development, evaluation, artifact export, and inference execution;
 - an internal FastAPI inference service;
 - a separate client-neutral ASP.NET Core backend;
-- future web and desktop clients.
+- a separate implemented WPF desktop client;
+- a future web client.
 
-The Python model pipeline, artifact format, CLI inference, internal HTTP inference service, and first backend-to-model request path are implemented. Web and desktop clients remain future components.
+The Python model pipeline, artifact format, CLI inference, internal HTTP inference service, ASP.NET Core integration, and WPF desktop analysis workflow are implemented. The web client remains a future component.
 
 ## Architecture Status
 
@@ -44,11 +45,13 @@ This document uses three status categories:
 - single-image prediction CLI;
 - internal FastAPI service with startup-time artifact loading;
 - liveness and multipart prediction endpoints;
+- threshold-normalized heatmap encoding as Base64 PNG data;
 - serialized access to the shared inference runtime;
 - separate ASP.NET Core backend with an HTTP adapter for the Python service;
 - successful local end-to-end prediction through ASP.NET Core and FastAPI;
+- successful image-analysis workflows through the WPF desktop client;
 - provisional ONNX feature-extractor export and earlier PyTorch/ONNX parity work;
-- 65 passing automated tests in the Python repository.
+- 68 passing automated tests in the Python repository.
 
 ### Selected Direction
 
@@ -57,14 +60,12 @@ This document uses three status categories:
 - Python remains the authoritative runtime for fitting, evaluation, artifact production, and model inference;
 - a long-running FastAPI process provides the internal inference boundary;
 - ASP.NET Core owns the public application API, validation, error mapping, and client-neutral contracts;
-- React and WPF clients should consume the ASP.NET Core backend rather than call Python directly;
+- React and WPF clients consume or should consume the ASP.NET Core backend rather than call Python directly;
 - model, backend, web, and desktop concerns remain independently versioned in separate repositories;
 - ONNX remains an optional portability and optimization path rather than a prerequisite for backend integration.
 
 ### Open
 
-- service readiness behavior and structured internal error responses;
-- additional defense-in-depth validation inside the Python service;
 - cancellation, timeout, concurrency, and throughput policies;
 - service packaging, deployment, and process supervision;
 - authentication or network isolation for the internal service boundary;
@@ -73,7 +74,9 @@ This document uses three status categories:
 - checksums and stronger artifact integrity validation;
 - approximate nearest-neighbor or coverage-preserving coreset optimization;
 - pixel-level metrics and anomaly-map post-processing;
-- backend persistence and client implementation.
+- backend persistence and web-client implementation;
+- multi-artifact loading and explicit category selection.
+- Python-service readiness behavior;
 
 ## Architectural Goals
 
@@ -114,7 +117,7 @@ ASP.NET Core backend
 Client-neutral public API
         |
         +--> future web client
-        `--> future desktop client
+        `--> implemented WPF desktop client
 ```
 
 The Python repository owns model behavior. The backend repository owns application-facing HTTP behavior. Clients do not duplicate model preprocessing, scoring, or threshold rules.
@@ -130,7 +133,7 @@ industrial-visual-anomaly-detection-web
 industrial-visual-anomaly-detection-desktop
 ```
 
-The model and backend repositories exist. Web and desktop repositories remain planned.
+The model, backend, and WPF desktop repositories exist. The web repository remains planned.
 
 ### Model Repository
 
@@ -167,9 +170,9 @@ The backend repository owns:
 
 The backend does not reproduce PyTorch preprocessing, embeddings, nearest-neighbor search, or threshold logic.
 
-### Future Web and Desktop Repositories
+### Web and Desktop Repositories
 
-Clients should own image selection, previews, request submission, result visualization, history views, platform-specific interaction, and presentation tests. They must call the backend rather than the internal Python service.
+Clients own image selection, previews, request submission, result visualization, history views, platform-specific interaction, and presentation tests. They must call the backend rather than the internal Python service. The WPF desktop client already implements the initial selection, preview, health-status, and image-analysis workflow; the web client remains planned.
 
 ## Current Model Repository Structure
 
@@ -193,6 +196,7 @@ src/
     models/
     service/
       app.py
+      heatmap_encoding.py
       prediction_response.py
       prediction_routes.py
       runtime.py
@@ -334,6 +338,8 @@ Bottle and Capsule results are exploratory because their test partitions were in
 
 Patch grids can be resized to image resolution, normalized, colorized, and blended with source images. Fixed threshold-based normalization provides more comparable heatmaps than independent per-image normalization.
 
+The internal service uses threshold-based normalization to generate an RGB heatmap, resizes it to the configured model input dimensions, encodes it as PNG, and includes it as Base64 data in the prediction response.
+
 Visualization is separate from classification logic. A heatmap supports interpretation but is not evidence of localization accuracy without mask-based metrics.
 
 ## Model Artifact Architecture
@@ -456,11 +462,17 @@ Example prediction response:
   "category": "capsule",
   "score": 4.992109298706055,
   "threshold": 2.501821517944336,
-  "isAnomalous": true
+  "isAnomalous": true,
+  "heatmap": {
+    "contentType": "image/png",
+    "width": 320,
+    "height": 320,
+    "dataBase64": "<Base64-encoded PNG data>"
+  }
 }
 ```
 
-The artifact directory name currently acts as `modelId`. The endpoint is internal and does not replace the public backend contract.
+The heatmap is normalized against the stored model threshold, resized to the configured model input dimensions, colorized as RGB, encoded as PNG, and transported as Base64 text. The artifact directory name currently acts as `modelId`. The endpoint is internal and does not replace the public backend contract.
 
 ## ASP.NET Core Integration
 
@@ -485,7 +497,7 @@ multipart HTTP request to FastAPI POST /api/v1/predictions
 InferenceRuntime performs Python/PyTorch prediction
         |
         v
-internal prediction response
+internal prediction response with score, decision, and heatmap
         |
         v
 backend maps result to client-neutral response
@@ -555,7 +567,7 @@ The project must not be represented as a validated production quality-control sy
 
 ### Implemented Python Tests
 
-The current 65 tests cover:
+The current 68 tests cover:
 
 - manifests and dataset discovery;
 - preprocessing;
@@ -570,7 +582,8 @@ The current 65 tests cover:
 - service settings;
 - runtime loading and reuse;
 - FastAPI lifespan and liveness behavior;
-- prediction response mapping and missing-upload validation.
+- prediction response mapping and missing-upload validation;
+- threshold-normalized heatmap encoding and response transport.
 
 Large artifacts and licensed datasets are not available in CI. Real artifact startup and the complete cross-process path are therefore verified locally rather than in the standard unit-test workflow.
 
@@ -582,9 +595,6 @@ The backend separately tests health endpoints, Problem Details, configuration bi
 
 Future tests should cover:
 
-- unsupported or malformed images at the Python boundary;
-- internal service error serialization;
-- readiness before and after artifact loading;
 - backend timeout and cancellation behavior;
 - a lightweight backend-to-service contract fixture suitable for CI;
 - artifact schema compatibility and corrupted metadata;
@@ -610,6 +620,7 @@ Initial deployment remains CPU-compatible and may run the backend and Python ser
 - non-square categories need a deliberate resize policy;
 - threshold or hyperparameter selection can leak test information;
 - service and backend contracts require coordinated versioning;
+- Base64 heatmaps increase internal response size;
 - process startup fails when the configured artifact is absent or incompatible;
 - HTTP and process boundaries add deployment complexity;
 - artifact evolution requires schema and compatibility management;
@@ -622,7 +633,7 @@ Initial deployment remains CPU-compatible and may run the backend and Python ser
 - production deployment certification;
 - real-time camera or PLC integration;
 - a production database and authentication system;
-- implemented web or desktop UI;
+- implemented web UI;
 - supervised defect-type classification;
 - automated retraining or multi-model orchestration;
 - public exposure of the FastAPI service;
@@ -650,19 +661,18 @@ Initial deployment remains CPU-compatible and may run the backend and Python ser
 16. Internal liveness and multipart prediction endpoints.
 17. ASP.NET Core HTTP adapter to the Python inference service.
 18. Verified end-to-end anomalous Capsule request through both processes.
+19. WPF desktop client with backend health checks, image preview, and analysis results.
+20. Threshold-normalized RGB heatmap generation in the internal prediction response.
 
 ## Immediate Architectural Steps
 
-1. Add Python-service readiness based on initialized runtime state.
-2. Define structured internal errors and malformed-image behavior.
-3. Add defense-in-depth content validation at the Python boundary.
-4. Define backend timeout, cancellation, and retry policy explicitly.
-5. Add service timing and structured logging.
-6. Create a reproducible local startup workflow for both processes.
-7. Add lightweight cross-service contract coverage where practical.
-8. Continue the public backend analysis contract and error handling.
-9. Evaluate deployment packaging and artifact provisioning.
-10. Begin client work only after the public backend contract is sufficiently stable.
+1. Propagate the generated heatmap through the ASP.NET Core backend to the WPF desktop client.
+2. Add multi-artifact loading or explicit category selection for Bottle and Capsule.
+3. Define backend timeout, cancellation, and retry policy explicitly.
+4. Add service timing and structured logging.
+5. Add lightweight cross-service contract coverage where practical.
+6. Evaluate deployment packaging and artifact provisioning.
+7. Design the future web-client integration against the stable backend contract.
 
 ## Related Documentation
 
@@ -674,4 +684,4 @@ Initial deployment remains CPU-compatible and may run the backend and Python ser
 
 ## Last Updated
 
-This architecture reflects the verified project state as of 2026-08-14.
+This architecture reflects the verified project state as of 2026-08-17.

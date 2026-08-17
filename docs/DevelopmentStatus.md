@@ -8,7 +8,7 @@ It distinguishes between automated verification, manually verified integration b
 
 ## Current Phase
 
-The project has completed its first model-development and artifact-export cycle and has entered the backend-integration phase.
+The project has completed its first model-development, artifact-export, backend-integration, and WPF desktop-client cycles. The current phase extends the verified end-to-end workflow with anomaly-heatmap transport and prepares multi-category model selection.
 
 The implemented system can:
 
@@ -25,12 +25,14 @@ The implemented system can:
 - export and reload fitted model artifacts;
 - classify images from filesystem paths or binary streams;
 - serve a loaded artifact through an internal FastAPI service;
+- return a threshold-normalized RGB heatmap as Base64-encoded PNG data;
 - receive public image-analysis requests through a separate ASP.NET Core backend;
-- execute a complete local request from the C# backend through Python to the model.
+- execute a complete local request from the C# backend through Python to the model;
+- select, preview, and analyze images through a separate WPF desktop client.
 
 The current reference artifact is the MVTec AD Capsule model using a 320 x 320 input, complete feature memory, and top-one-percent patch-score aggregation.
 
-Web and desktop clients, pixel-level localization metrics, production deployment, and public artifact distribution remain future work.
+The web client, pixel-level localization metrics, production deployment, multi-category runtime selection, and public artifact distribution remain future work.
 
 ## Project Vision
 
@@ -43,7 +45,7 @@ The project is intended to become an industrial visual anomaly-detection system 
 - packages fitted model state as versioned artifacts;
 - executes model inference in a persistent Python service;
 - exposes a stable client-neutral API through ASP.NET Core;
-- can later support desktop and web clients.
+- supports the implemented WPF desktop client and can later support a web client.
 
 The current implementation performs unsupervised anomaly detection. It decides whether an image is normal or anomalous and produces a patch-level anomaly map. It does not classify the precise defect type.
 
@@ -68,7 +70,7 @@ The current implementation performs unsupervised anomaly detection. It decides w
 | .NET SDK | 10.0.400 |
 | Git | 2.55.0.windows.3 |
 
-The Python version is recorded in `.python-version`, and direct dependencies are pinned in `requirements.txt`. Source compilation and `pip check` succeed. The Python automated test suite currently contains 65 passing tests.
+The Python version is recorded in `.python-version`, and direct dependencies are pinned in `requirements.txt`. Source compilation and `pip check` succeed. The Python automated test suite currently contains 68 passing tests.
 
 The FastAPI test client currently emits a third-party Starlette deprecation warning concerning HTTPX. It does not fail the suite and should be handled during a focused dependency update rather than mixed into the current feature work.
 
@@ -261,6 +263,8 @@ Sampling accelerates the search but degrades recall too strongly. Complete memor
 
 Patch scores can be resized, colorized, and blended with source images. Both per-image normalization and fixed threshold-based normalization are supported. Threshold-based normalization is preferred for comparisons because it uses a consistent reference.
 
+The internal FastAPI prediction endpoint now converts patch scores into a threshold-normalized RGB heatmap, resizes it to the configured model input dimensions, encodes it as PNG, and returns it as Base64 text. A real Capsule response produced a 320 x 320 PNG whose highlighted region was visually consistent with the visible defect.
+
 Heatmaps are explanatory outputs. Quantitative pixel-level localization evaluation remains open.
 
 ## Exported Model Artifact
@@ -347,7 +351,13 @@ Prediction requests use multipart field `image`. A verified anomalous Capsule re
   "category": "capsule",
   "score": 4.992109298706055,
   "threshold": 2.501821517944336,
-  "isAnomalous": true
+  "isAnomalous": true,
+  "heatmap": {
+    "contentType": "image/png",
+    "width": 320,
+    "height": 320,
+    "dataBase64": "<Base64-encoded PNG data>"
+  }
 }
 ```
 
@@ -403,7 +413,7 @@ This was a manual local integration verification using the real 410.16 MiB artif
 
 ## Automated Tests and Quality Checks
 
-The Python repository has 65 passing tests covering the deterministic model components, artifacts, service configuration, runtime lifecycle, FastAPI liveness, prediction response mapping, and missing-upload validation.
+The Python repository has 68 passing tests covering the deterministic model components, artifacts, service configuration, runtime lifecycle, FastAPI liveness, prediction response mapping, missing-upload validation, and heatmap encoding.
 
 The following checks pass:
 
@@ -438,6 +448,7 @@ src/
     models/
     service/
       app.py
+      heatmap_encoding.py
       prediction_response.py
       prediction_routes.py
       runtime.py
@@ -466,6 +477,7 @@ Generated datasets, reports, ONNX files, model artifacts, caches, heatmaps, and 
 - local artifact storage outside Git;
 - Python as the authoritative inference runtime;
 - FastAPI as the internal model-service boundary;
+- threshold-normalized Base64 PNG heatmaps in the internal prediction response;
 - ASP.NET Core as the public client-neutral API;
 - HTTP communication between backend and inference service;
 - ONNX as an optional future path rather than an integration prerequisite.
@@ -479,7 +491,6 @@ Generated datasets, reports, ONNX files, model artifacts, caches, heatmaps, and 
 - stronger artifact metadata and checksums;
 - public artifact release contents;
 - Python-service readiness behavior;
-- malformed-image and internal error contracts;
 - timeout, cancellation, retry, and concurrency policies;
 - service packaging and process supervision;
 - future threshold calibration;
@@ -487,7 +498,7 @@ Generated datasets, reports, ONNX files, model artifacts, caches, heatmaps, and 
 
 ## Deferred Work
 
-- web and desktop clients;
+- web client;
 - database persistence;
 - authentication and authorization;
 - production deployment packaging;
@@ -501,20 +512,18 @@ Generated datasets, reports, ONNX files, model artifacts, caches, heatmaps, and 
 
 ## Immediate Next Steps
 
-1. Add readiness behavior based on successful runtime initialization.
-2. Define structured Python-service errors and malformed-image handling.
-3. Add defense-in-depth upload validation at the Python boundary.
+1. Propagate the service-generated heatmap through the ASP.NET Core backend to the WPF desktop client.
+2. Verify the complete heatmap workflow with normal and anomalous Capsule images.
+3. Add multi-artifact loading or explicit category selection for Bottle and Capsule.
 4. Define backend timeout, cancellation, and retry behavior explicitly.
 5. Add structured timing and failure logging.
-6. Create a reproducible local startup workflow for backend and Python service.
-7. Add lightweight cross-service contract coverage where practical.
-8. Continue the public backend analysis contract before starting clients.
-9. Evaluate packaging and artifact provisioning for deployment.
-10. Update release notes after the service milestone is complete.
+6. Add lightweight cross-service contract coverage where practical.
+7. Evaluate packaging and artifact provisioning for deployment.
+8. Update documentation and release notes after the heatmap milestone is complete.
 
 ## Last Verified Status
 
-As of 2026-08-14:
+As of 2026-08-17:
 
 - all three acquired MVTec datasets are validated;
 - machine-readable dataset reports are supported;
@@ -530,11 +539,13 @@ As of 2026-08-14:
 - a 410.16 MiB Capsule artifact was verified;
 - path and stream inference produced identical results for the verified image;
 - the FastAPI service loads and reuses the configured artifact;
+- the prediction response includes a verified 320 x 320 threshold-normalized Base64 PNG heatmap;
 - a real good Capsule image was classified as normal through direct inference;
 - a real poke image was classified as anomalous through the service;
 - the ASP.NET Core backend successfully called the Python service;
 - the complete local response included model identity, score, threshold, decision, duration, and trace identifier;
-- 65 Python tests pass;
-- web and desktop clients do not yet exist.
+- 68 Python tests pass;
+- the WPF desktop client completes the initial backend-driven image-analysis workflow;
+- the web client does not yet exist.
 
-The next active milestone is inference-service hardening followed by continued public backend development.
+The next active milestone is propagating anomaly heatmaps through the backend to the WPF desktop client, followed by multi-category artifact selection.

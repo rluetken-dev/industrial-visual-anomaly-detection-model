@@ -11,7 +11,7 @@ Industrial Visual Anomaly Detection is an educational and portfolio-oriented com
 
 The implemented Python MVP uses a frozen pretrained ResNet18 and a PatchCore-inspired feature-memory approach. It can validate datasets, create reproducible data splits, build category-specific anomaly models, evaluate them, generate heatmaps, export reusable artifacts, classify individual images on CPU, and expose a loaded artifact through an internal FastAPI inference service.
 
-> **Current status:** The Python model-development, artifact export, local inference, and internal HTTP inference-service MVPs are implemented. Bottle and Capsule have been evaluated exploratorily, a reusable Capsule reference artifact can be exported, and 65 automated tests cover the main deterministic and service components. End-to-end communication from the separate ASP.NET Core backend through the Python service to the model has been verified locally.
+> **Current status:** The Python model-development, artifact export, local inference, and internal HTTP inference-service MVPs are implemented. Bottle and Capsule have been evaluated exploratorily, a reusable Capsule reference artifact can be exported, and 68 automated tests cover the main deterministic and service components. The internal prediction response now includes a threshold-normalized anomaly heatmap as a Base64-encoded PNG. End-to-end communication from the separate ASP.NET Core backend through the Python service to the model has been verified locally.
 
 ## What the Model Does
 
@@ -48,6 +48,7 @@ The current output is `normal` or `anomalous`. It does not classify the exact de
 - single-image inference CLI;
 - internal FastAPI inference service with startup-time artifact loading;
 - multipart image prediction endpoint for backend integration;
+- threshold-normalized anomaly heatmaps returned as Base64-encoded RGB PNG images;
 - automated unit and service tests;
 - GitHub Actions CI.
 
@@ -154,6 +155,7 @@ industrial-visual-anomaly-detection-model/
 │       ├── models/
 │       ├── service/
 │       │   ├── app.py
+│       │   ├── heatmap_encoding.py
 │       │   ├── prediction_response.py
 │       │   ├── prediction_routes.py
 │       │   ├── runtime.py
@@ -189,10 +191,10 @@ Local datasets, generated reports, heatmaps, ONNX files, feature memories, and m
 
 Related application stack:
 
-- separate ASP.NET Core backend;
+- separate ASP.NET Core backend with verified Python-service integration;
+- separate WPF desktop client with a verified image-analysis workflow;
 - planned separate web client;
-- planned separate desktop client;
-- versioned HTTP inference boundary between .NET and Python.
+- versioned HTTP inference boundaries between the clients, backend, and Python service.
 
 ## Local Setup
 
@@ -243,7 +245,7 @@ Activation is optional. All commands below call the environment interpreter expl
     -v
 ```
 
-The current suite contains 65 tests. The GitHub Actions workflow runs equivalent checks with Python 3.12 on Ubuntu for every push and pull request targeting `main`.
+The current suite contains 68 tests. The GitHub Actions workflow runs equivalent checks with Python 3.12 on Ubuntu for every push and pull request targeting `main`.
 
 ## Dataset Setup
 
@@ -400,11 +402,17 @@ Example response:
   "category": "capsule",
   "score": 4.992109298706055,
   "threshold": 2.501821517944336,
-  "isAnomalous": true
+  "isAnomalous": true,
+  "heatmap": {
+    "contentType": "image/png",
+    "width": 320,
+    "height": 320,
+    "dataBase64": "<Base64-encoded PNG data>"
+  }
 }
 ```
 
-The endpoint is intended as an internal model boundary. Public upload validation, error mapping, trace identifiers, and client-facing response contracts belong to the ASP.NET Core backend.
+The heatmap is threshold-normalized, resized to the configured model input dimensions, colorized as an RGB image, encoded as PNG, and transported as Base64 text. The ASP.NET Core backend may forward or transform this internal representation for application clients.
 
 ## Visualization
 
@@ -412,7 +420,11 @@ The project can convert the patch-score grid into a resized heatmap and overlay 
 
 - per-image normalization for qualitative inspection;
 - threshold-based normalization for better cross-image comparison;
-- configurable heatmap opacity.
+- configurable heatmap opacity;
+- threshold-normalized RGB heatmap generation for service responses;
+- Base64-encoded PNG transport through the internal prediction endpoint.
+
+The service-generated heatmap uses the model threshold as its fixed normalization reference and is resized to the configured model input dimensions. This makes its color scale more comparable across images than independent per-image normalization.
 
 Heatmaps are explanation aids. Pixel-level benchmark metrics against ground-truth masks are not yet implemented.
 
@@ -448,21 +460,22 @@ Dataset-dependent benchmarks, real service startup with a large artifact, and ar
 - one category-specific artifact must not be assumed to generalize to another category;
 - the inference service currently serializes access to its shared model runtime;
 - service authentication, containerization, production health checks, and deployment hardening are not implemented;
-- the separate ASP.NET Core backend is under active development;
-- web and desktop clients are not implemented;
+- the separate ASP.NET Core backend and WPF desktop client provide verified MVP integration but are not production deployments;
+- the web client is not implemented;
+- Base64-encoded heatmaps increase the size of internal prediction responses;
 - the system is not certified for production quality-control decisions.
 
 ## Roadmap
 
-- harden the internal inference-service error contract and upload validation;
-- add readiness behavior based on loaded artifact availability;
+- propagate service-generated heatmaps through the ASP.NET Core backend to the WPF desktop client;
+- add multi-artifact loading or model selection for categories such as Bottle and Capsule;
 - add backend-to-service integration coverage suitable for CI;
 - evaluate at least one MVTec AD category beyond Bottle and Capsule;
 - implement pixel-level localization metrics;
 - define an evaluation protocol that does not tune on inspected test data;
 - investigate principled feature-memory reduction and faster nearest-neighbor search;
 - complete portable artifact and 320 × 320 ONNX parity work;
-- continue the ASP.NET Core backend and integrate separate web and desktop clients;
+- implement the separate web client;
 - add a Model Card and updated release documentation.
 
 ## Dataset and Artifact Policy

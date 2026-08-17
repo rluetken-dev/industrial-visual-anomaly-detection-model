@@ -9,8 +9,9 @@ It covers:
 - the implemented Python model-development and inference pipeline;
 - versioned Python/PyTorch model artifacts;
 - the implemented internal FastAPI inference service;
-- the implemented foundation of the separate ASP.NET Core backend;
-- planned web and desktop clients;
+- the implemented separate ASP.NET Core backend MVP;
+- the implemented WPF desktop-client MVP;
+- a planned web client;
 - experimental, deferred, and production-hardening requirements.
 
 Implementation history and immediate work are recorded in `DevelopmentStatus.md`. Architectural responsibilities and boundaries are described in `ArchitectureOverview.md`.
@@ -59,7 +60,7 @@ The implemented model uses a PatchCore-inspired method:
 
 The system detects deviation from learned normal appearance. It does not classify the exact defect type.
 
-Model inference remains authoritative in Python. A persistent internal FastAPI service exposes it to a separate ASP.NET Core backend, which owns the public application API and future client integration.
+Model inference remains authoritative in Python. A persistent internal FastAPI service exposes it to a separate ASP.NET Core backend, which owns the public application API and client integration. The implemented WPF desktop client consumes that backend contract.
 
 ## Current Implementation Status
 
@@ -86,13 +87,15 @@ Model inference remains authoritative in Python. A persistent internal FastAPI s
 - single-image prediction CLI;
 - FastAPI service with startup-time artifact and extractor loading;
 - FastAPI liveness and multipart prediction endpoints;
+- threshold-normalized RGB heatmaps encoded as Base64 PNG data in prediction responses;
 - serialized access to shared inference state;
 - ASP.NET Core .NET 10 backend foundation;
 - backend liveness, readiness, Problem Details, upload validation, and analysis endpoint;
 - backend HTTP adapter to the Python inference service;
 - manually verified end-to-end inference through both processes;
-- 65 passing Python tests and automated backend tests;
-- GitHub Actions CI in both implemented repositories.
+- WPF desktop client with health status, image selection, preview, submission, and result display;
+- 68 passing Python tests plus automated backend and desktop tests;
+- GitHub Actions CI in all three implemented repositories.
 
 ### Verified Datasets
 
@@ -123,12 +126,10 @@ The selected Capsule configuration is:
 - complete preprocessing metadata and artifact checksums;
 - Python-service readiness endpoint;
 - structured internal service error contract;
-- defense-in-depth malformed-image validation in the Python service;
 - production timeout, cancellation, retry, and concurrency policies;
 - service packaging and process supervision;
 - backend persistence, authentication, and production observability;
 - web application;
-- desktop application;
 - production deployment and public model-artifact distribution.
 
 ## Project Goals
@@ -151,7 +152,8 @@ The project shall demonstrate:
 - developers learning computer vision and anomaly detection;
 - engineers evaluating visual inspection workflows;
 - portfolio reviewers examining architecture, testing, and reproducibility;
-- future web and desktop users submitting inspection images and reviewing results.
+- WPF desktop users submitting inspection images and reviewing results;
+- future web users using the same backend workflow.
 
 The project is not certified for production quality control or safety-critical decisions.
 
@@ -163,11 +165,11 @@ The current Python scope includes dataset qualification, deterministic splitting
 
 ### Backend Scope
 
-The ASP.NET Core backend owns the public image-analysis endpoint, upload validation, application orchestration, the Python-service adapter, stable error mapping, trace identifiers, and future client access.
+The ASP.NET Core backend owns the public image-analysis endpoint, upload validation, application orchestration, the Python-service adapter, stable error mapping, trace identifiers, and client access.
 
-### Planned Client Scope
+### Client Scope
 
-Separate web and desktop clients shall consume the same backend contract rather than duplicating model or business logic.
+The implemented WPF desktop client consumes the backend contract for health checks and image analysis. A future web client shall consume the same backend contract rather than duplicating model or business logic.
 
 ### Explicitly Deferred
 
@@ -244,6 +246,7 @@ Separate web and desktop clients shall consume the same backend contract rather 
 - `FR-VIS-003` Maps shall support threshold-based normalization for cross-image comparison.
 - `FR-VIS-004` The system shall create RGB heatmaps and configurable-opacity overlays.
 - `FR-VIS-005` Heatmaps shall remain explanation aids and not replace decision contracts.
+- `FR-VIS-006` Internal service heatmaps shall use threshold-based normalization and shall be encoded as RGB PNG images.
 
 ### Model Artifacts
 
@@ -265,12 +268,13 @@ Separate web and desktop clients shall consume the same backend contract rather 
 - `FR-SVC-004` Requests shall reuse the loaded runtime.
 - `FR-SVC-005` `GET /health/live` shall report process liveness.
 - `FR-SVC-006` `POST /api/v1/predictions` shall accept multipart field `image`.
-- `FR-SVC-007` A successful response shall contain model ID, category, score, threshold, and Boolean anomaly decision.
+- `FR-SVC-007` A successful response shall contain model ID, category, score, threshold, Boolean anomaly decision, and a nested heatmap.
 - `FR-SVC-008` The artifact directory name shall currently identify the model.
 - `FR-SVC-009` Shared runtime access shall remain serialized until measured concurrency behavior supports another policy.
 - `FR-SVC-010` The service shall expose readiness only after runtime initialization is successful.
 - `FR-SVC-011` The service shall eventually return structured internal errors for invalid images and inference failures.
 - `FR-SVC-012` The internal endpoint shall not be treated as the public client API.
+- `FR-SVC-013` The heatmap contract shall contain content type, width, height, and Base64-encoded PNG data.
 
 ### ASP.NET Core Backend API
 
@@ -292,11 +296,14 @@ Separate web and desktop clients shall consume the same backend contract rather 
 - `FR-WEB-003` It shall display localization output when supplied by the backend.
 - `FR-WEB-004` Errors shall be understandable and omit sensitive server details.
 
-### Desktop Application – Planned
+### Desktop Application – Implemented MVP
 
 - `FR-DSK-001` The desktop client shall allow local image selection and backend submission.
 - `FR-DSK-002` It shall display the same essential result fields as the web client.
 - `FR-DSK-003` Desktop convenience features shall not create a separate inference contract.
+- `FR-DSK-004` The desktop client shall display backend liveness and inference-readiness state.
+- `FR-DSK-005` The desktop client shall preview the selected image and display decision, score, threshold, model identity, category, duration, and trace identifier.
+- `FR-DSK-006` The desktop client shall display localization output when supplied by the backend.
 
 ### Observability and Diagnostics
 
@@ -393,6 +400,7 @@ Separate web and desktop clients shall consume the same backend contract rather 
 - `AC-SVC-003` Liveness returns a healthy response.
 - `AC-SVC-004` A multipart anomalous Capsule image returns the expected model identity and anomalous decision.
 - `AC-SVC-005` Service construction supports an injected runtime for automated tests.
+- `AC-SVC-010` A successful prediction includes a decodable threshold-normalized RGB PNG heatmap with the configured model input dimensions.
 
 ### Backend Integration MVP – Achieved
 
@@ -421,11 +429,16 @@ Separate web and desktop clients shall consume the same backend contract rather 
 - `AC-ART-004` Numerical parity is verified for that supported portable path.
 - `AC-ART-005` Supporting preprocessing and model state can be reconstructed in the target runtime.
 
-### Client MVPs – Pending
+### Desktop Client MVP – Achieved
+
+- `AC-DSK-001` The desktop client submits an image and displays the backend result.
+- `AC-DSK-002` The desktop client reports backend liveness and inference readiness.
+- `AC-DSK-003` Normal and anomalous Capsule images complete the verified desktop-to-backend analysis workflow.
+
+### Web Client MVP – Pending
 
 - `AC-WEB-001` The web client submits an image and displays the backend result.
-- `AC-DSK-001` The desktop client submits an image and displays the backend result.
-- `AC-API-006` Both clients use the same versioned backend contract.
+- `AC-API-006` Web and desktop clients use the same versioned backend contract.
 
 ## Known Reference Results
 
@@ -465,7 +478,8 @@ Random sampling reduced memory and runtime but also reduced Capsule recall. Comp
 - HTTP and process boundaries add deployment and lifecycle complexity.
 - The internal service lacks production hardening and readiness behavior.
 - MVTec licenses restrict commercial use and redistribution.
-- Web and desktop clients do not yet exist.
+- The web client does not yet exist.
+- The backend and desktop client do not yet transport or display the service-generated heatmap.
 - The system is not validated for autonomous production decisions.
 
 ## Open Decisions
@@ -478,7 +492,7 @@ Random sampling reduced memory and runtime but also reduced Capsule recall. Comp
 - What readiness, timeout, cancellation, and retry policies should apply?
 - How should the Python service be packaged, supervised, and network-isolated?
 - How should heatmaps or localization references enter the public backend response?
-- When should web and desktop client implementation begin?
+- When should web-client implementation begin?
 
 ## Delivery Stages
 
@@ -487,9 +501,11 @@ Random sampling reduced memory and runtime but also reduced Capsule recall. Comp
 3. **Python artifact and inference MVP – completed:** artifact, exporter, loader, inference APIs, and CLI.
 4. **Internal inference-service MVP – completed:** FastAPI runtime, liveness, prediction contract, and tests.
 5. **Backend integration MVP – completed:** ASP.NET Core analysis endpoint, upload validation, Python adapter, and verified end-to-end request.
-6. **Service and backend hardening – active:** readiness, errors, timeouts, logging, packaging, and contract coverage.
-7. **Client MVPs – planned:** separate web and desktop clients using the backend.
-8. **Portfolio release expansion – planned:** demonstrations, Model Card, updated releases, and clearly scoped limitations.
+6. **WPF desktop-client MVP – completed:** health status, local image selection, preview, backend submission, and result display.
+7. **Heatmap integration – active:** propagate localization data through the backend and display it in the desktop client.
+8. **Service and backend hardening – planned:** readiness, structured errors, timeouts, logging, packaging, and contract coverage.
+9. **Web-client MVP – planned:** separate web client using the same backend contract.
+10. **Portfolio release expansion – planned:** demonstrations, Model Card, updated releases, and clearly scoped limitations.
 
 ## Related Documentation
 
@@ -502,4 +518,4 @@ Random sampling reduced memory and runtime but also reduced Capsule recall. Comp
 
 ## Last Updated
 
-2026-08-14
+2026-08-17
