@@ -1,12 +1,14 @@
+from base64 import b64decode
+from io import BytesIO
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
+from PIL import Image, UnidentifiedImageError
+import torch
 
 from industrial_visual_anomaly_detection.service.app import create_app
-
-from PIL import UnidentifiedImageError
 
 
 class PredictionEndpointTests(unittest.TestCase):
@@ -14,10 +16,17 @@ class PredictionEndpointTests(unittest.TestCase):
         runtime = Mock()
         runtime.model_id = "mvtec-ad-capsule-320"
         runtime.category = "capsule"
+        runtime.input_size = 8
         runtime.predict.return_value = SimpleNamespace(
             anomaly_score=4.992109,
             threshold=2.501822,
             is_anomalous=True,
+            patch_scores=torch.tensor(
+                [
+                    [0.0, 1.0],
+                    [2.0, 4.0],
+                ]
+            ),
         )
         app = create_app(runtime=runtime)
 
@@ -34,6 +43,10 @@ class PredictionEndpointTests(unittest.TestCase):
             )
 
         self.assertEqual(200, response.status_code)
+
+        response_data = response.json()
+        heatmap_data = response_data.pop("heatmap")
+
         self.assertEqual(
             {
                 "modelId": "mvtec-ad-capsule-320",
@@ -42,8 +55,19 @@ class PredictionEndpointTests(unittest.TestCase):
                 "threshold": 2.501822,
                 "isAnomalous": True,
             },
-            response.json(),
+            response_data,
         )
+        self.assertEqual("image/png", heatmap_data["contentType"])
+        self.assertEqual(8, heatmap_data["width"])
+        self.assertEqual(8, heatmap_data["height"])
+
+        with Image.open(
+            BytesIO(b64decode(heatmap_data["dataBase64"]))
+        ) as heatmap:
+            self.assertEqual("PNG", heatmap.format)
+            self.assertEqual("RGB", heatmap.mode)
+            self.assertEqual((8, 8), heatmap.size)
+
         runtime.predict.assert_called_once()
 
     def test_missing_image_returns_validation_error(self) -> None:

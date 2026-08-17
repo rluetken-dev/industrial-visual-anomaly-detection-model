@@ -65,6 +65,12 @@ class InferenceRuntime:
 
         return self.artifact.metadata.category
 
+    @property
+    def input_size(self) -> int:
+        """Return the configured square model input size."""
+
+        return self.artifact.metadata.input_size
+
     def predict(
         self,
         image_stream: BinaryIO,
