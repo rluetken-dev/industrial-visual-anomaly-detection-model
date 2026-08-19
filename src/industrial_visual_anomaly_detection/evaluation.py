@@ -35,6 +35,41 @@ def select_maximum_normal_threshold(
     return normal_validation_scores.max().item()
 
 
+def select_normal_score_quantile_threshold(
+    normal_validation_scores: torch.Tensor,
+    quantile: float,
+) -> float:
+    """Select a normal-validation score quantile as threshold."""
+
+    if not 0.0 < quantile <= 1.0:
+        raise ValueError(
+            "Threshold quantile must be greater than zero "
+            "and at most one."
+        )
+
+    if normal_validation_scores.numel() == 0:
+        raise ValueError(
+            "Threshold selection requires normal validation scores."
+        )
+
+    if not torch.isfinite(normal_validation_scores).all():
+        raise ValueError(
+            "Normal validation scores must contain only finite values."
+        )
+
+    quantile_scores = normal_validation_scores
+
+    if not quantile_scores.is_floating_point():
+        quantile_scores = quantile_scores.to(
+            dtype=torch.float64
+        )
+
+    return torch.quantile(
+        quantile_scores,
+        quantile,
+    ).item()
+
+
 def classify_anomaly_scores(
     scores: torch.Tensor,
     threshold: float,

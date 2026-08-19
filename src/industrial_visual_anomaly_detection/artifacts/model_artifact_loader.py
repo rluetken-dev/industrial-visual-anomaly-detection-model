@@ -61,6 +61,18 @@ def load_model_artifact(
         feature_memory_entries=int(
             metadata_data["feature_memory_entries"]
         ),
+        threshold_method=str(
+            metadata_data.get(
+                "threshold_method",
+                "maximum_normal",
+            )
+        ),
+        threshold_quantile=float(
+            metadata_data.get(
+                "threshold_quantile",
+                1.0,
+            )
+        ),
     )
 
     feature_memory = torch.load(

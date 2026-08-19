@@ -62,6 +62,15 @@ def parse_arguments() -> Namespace:
         default=0.01,
     )
     parser.add_argument(
+        "--threshold-quantile",
+        type=float,
+        default=1.0,
+        help=(
+            "Normal-validation score quantile used as "
+            "the anomaly threshold."
+        ),
+    )
+    parser.add_argument(
         "--memory-fraction",
         type=float,
         default=1.0,
@@ -91,6 +100,9 @@ def main() -> None:
         memory_chunk_size=arguments.memory_chunk_size,
         input_size=arguments.input_size,
         top_fraction=arguments.top_fraction,
+        threshold_quantile=(
+            arguments.threshold_quantile
+        ),
         memory_fraction=arguments.memory_fraction,
         sampling_seed=arguments.sampling_seed,
     )
@@ -162,6 +174,11 @@ def main() -> None:
     print(
         f"Top fraction: "
         f"{configuration.top_fraction:.4f}"
+    )
+    print("Threshold method: normal_score_quantile")
+    print(
+        f"Threshold quantile: "
+        f"{configuration.threshold_quantile:.4f}"
     )
     print(f"Validation threshold: {result.threshold:.6f}")
     print(

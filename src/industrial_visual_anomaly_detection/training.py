@@ -11,7 +11,7 @@ from industrial_visual_anomaly_detection.artifacts import (
 )
 from industrial_visual_anomaly_detection.datasets import ImagePathDataset
 from industrial_visual_anomaly_detection.evaluation import (
-    select_maximum_normal_threshold,
+    select_normal_score_quantile_threshold,
 )
 from industrial_visual_anomaly_detection.models import (
     aggregate_top_patch_scores,
@@ -33,6 +33,7 @@ class ModelTrainingConfiguration:
     memory_chunk_size: int = 4096
     input_size: int = 224
     top_fraction: float = 0.01
+    threshold_quantile: float = 1.0
     memory_fraction: float = 1.0
     sampling_seed: int = 42
 
@@ -54,6 +55,12 @@ class ModelTrainingConfiguration:
         if not 0.0 < self.top_fraction <= 1.0:
             raise ValueError(
                 "Top fraction must be greater than zero "
+                "and at most one."
+            )
+
+        if not 0.0 < self.threshold_quantile <= 1.0:
+            raise ValueError(
+                "Threshold quantile must be greater than zero "
                 "and at most one."
             )
 
@@ -192,12 +199,13 @@ def train_model_artifact(
         validation_patch_scores,
         top_fraction=configuration.top_fraction,
     )
-    threshold = select_maximum_normal_threshold(
-        validation_scores
+    threshold = select_normal_score_quantile_threshold(
+        validation_scores,
+        quantile=configuration.threshold_quantile,
     )
 
     metadata = ModelArtifactMetadata(
-        schema_version=1,
+        schema_version=2,
         dataset=dataset,
         category=category,
         backbone="resnet18",
@@ -210,6 +218,10 @@ def train_model_artifact(
         memory_fraction=configuration.memory_fraction,
         sampling_seed=configuration.sampling_seed,
         feature_memory_entries=feature_memory.shape[0],
+        threshold_method="normal_score_quantile",
+        threshold_quantile=(
+            configuration.threshold_quantile
+        ),
     )
     artifact = ModelArtifact(
         metadata=metadata,

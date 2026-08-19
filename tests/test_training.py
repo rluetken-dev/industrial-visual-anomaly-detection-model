@@ -19,6 +19,37 @@ class ModelTrainingConfigurationTests(unittest.TestCase):
         self.assertEqual(1.0, configuration.memory_fraction)
         self.assertEqual(42, configuration.sampling_seed)
 
+    def test_threshold_quantile_is_configurable(self) -> None:
+        configuration = ModelTrainingConfiguration(
+            threshold_quantile=0.95
+        )
+
+        self.assertEqual(
+            0.95,
+            configuration.threshold_quantile,
+        )
+
+    def test_invalid_threshold_quantiles_are_rejected(
+        self,
+    ) -> None:
+        for threshold_quantile in (
+            0.0,
+            -0.1,
+            1.1,
+        ):
+            with self.subTest(
+                threshold_quantile=threshold_quantile
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "Threshold quantile",
+                ):
+                    ModelTrainingConfiguration(
+                        threshold_quantile=(
+                            threshold_quantile
+                        )
+                    )
+
     def test_non_positive_batch_size_is_rejected(self) -> None:
         with self.assertRaisesRegex(
             ValueError,

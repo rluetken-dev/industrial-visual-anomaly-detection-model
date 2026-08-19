@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,9 +18,12 @@ class ModelArtifactTests(unittest.TestCase):
         self,
         feature_memory_entries: int = 2,
         embedding_dimension: int = 3,
+        schema_version: int = 1,
+        threshold_method: str = "maximum_normal",
+        threshold_quantile: float = 1.0,
     ) -> ModelArtifactMetadata:
         return ModelArtifactMetadata(
-            schema_version=1,
+            schema_version=schema_version,
             dataset="test-dataset",
             category="test-category",
             backbone="resnet18",
@@ -32,6 +36,8 @@ class ModelArtifactTests(unittest.TestCase):
             memory_fraction=1.0,
             sampling_seed=42,
             feature_memory_entries=feature_memory_entries,
+            threshold_method=threshold_method,
+            threshold_quantile=threshold_quantile,
         )
 
     def test_artifact_round_trip_preserves_data(self) -> None:
@@ -64,6 +70,90 @@ class ModelArtifactTests(unittest.TestCase):
                 artifact.feature_memory,
                 loaded_artifact.feature_memory,
             )
+        )
+
+    def test_schema_two_threshold_metadata_is_preserved(
+        self,
+    ) -> None:
+        artifact = ModelArtifact(
+            metadata=self.create_metadata(
+                schema_version=2,
+                threshold_method="normal_score_quantile",
+                threshold_quantile=0.95,
+            ),
+            feature_memory=torch.zeros(2, 3),
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            artifact_directory = save_model_artifact(
+                artifact,
+                Path(temporary_directory) / "model",
+            )
+            loaded_artifact = load_model_artifact(
+                artifact_directory
+            )
+
+        self.assertEqual(
+            2,
+            loaded_artifact.metadata.schema_version,
+        )
+        self.assertEqual(
+            "normal_score_quantile",
+            loaded_artifact.metadata.threshold_method,
+        )
+        self.assertAlmostEqual(
+            0.95,
+            loaded_artifact.metadata.threshold_quantile,
+        )
+
+    def test_schema_one_without_threshold_metadata_uses_defaults(
+        self,
+    ) -> None:
+        artifact = ModelArtifact(
+            metadata=self.create_metadata(),
+            feature_memory=torch.zeros(2, 3),
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            artifact_directory = save_model_artifact(
+                artifact,
+                Path(temporary_directory) / "model",
+            )
+            metadata_path = (
+                artifact_directory / "metadata.json"
+            )
+
+            metadata_data = json.loads(
+                metadata_path.read_text(
+                    encoding="utf-8"
+                )
+            )
+            metadata_data.pop("threshold_method")
+            metadata_data.pop("threshold_quantile")
+            metadata_path.write_text(
+                json.dumps(
+                    metadata_data,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            loaded_artifact = load_model_artifact(
+                artifact_directory
+            )
+
+        self.assertEqual(
+            1,
+            loaded_artifact.metadata.schema_version,
+        )
+        self.assertEqual(
+            "maximum_normal",
+            loaded_artifact.metadata.threshold_method,
+        )
+        self.assertAlmostEqual(
+            1.0,
+            loaded_artifact.metadata.threshold_quantile,
         )
 
     def test_entry_count_mismatch_is_rejected(self) -> None:

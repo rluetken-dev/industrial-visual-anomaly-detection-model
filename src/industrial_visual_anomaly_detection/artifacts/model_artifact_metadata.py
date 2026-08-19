@@ -18,3 +18,5 @@ class ModelArtifactMetadata:
     memory_fraction: float
     sampling_seed: int
     feature_memory_entries: int
+    threshold_method: str = "maximum_normal"
+    threshold_quantile: float = 1.0
