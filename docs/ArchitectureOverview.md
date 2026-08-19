@@ -24,8 +24,9 @@ The system consists of independently versioned repositories for:
 - 384-dimensional patch embeddings;
 - complete and optionally sampled feature memories;
 - exact chunked nearest-neighbor scoring;
-- validation-derived anomaly thresholds;
-- category evaluation and exploratory metrics;
+- configurable normal-validation quantile thresholds;
+- dataset-independent labeled-image manifests;
+- artifact evaluation with score distributions, confusion matrices, metrics, and error lists;
 - anomaly-map and heatmap generation;
 - reusable model-artifact export and loading;
 - file-path and stream inference;
@@ -33,7 +34,8 @@ The system consists of independently versioned repositories for:
 - ASP.NET Core integration with health and error boundaries;
 - WPF image selection, preview, analysis results, and interactive heatmap overlay;
 - Docker Compose orchestration of the inference service and backend;
-- 92 passing automated tests in the Python repository.
+- exploratory VisA Candle threshold calibration with q95 selected as a provisional candidate;
+- 111 passing automated tests in the Python repository.
 
 ### Selected Direction
 
@@ -43,6 +45,8 @@ The system consists of independently versioned repositories for:
 - one fitted artifact represents one product category;
 - normal-image directories are the general fitting input;
 - MVTec manifests remain a supported reproducible specialized workflow;
+- labeled CSV manifests provide the dataset-independent evaluation boundary;
+- threshold quantiles are category-specific calibration parameters recorded in artifact metadata;
 - HTTP remains the cross-runtime boundary;
 - the WPF client remains native Windows software outside Docker;
 - ONNX remains an optional portability path rather than a current integration requirement.
@@ -50,7 +54,7 @@ The system consists of independently versioned repositories for:
 ### Open
 
 - multi-artifact loading and explicit category selection;
-- evaluation on a genuinely non-MVTec image collection;
+- independent validation of the provisional q95 threshold strategy on previously unused data or another suitable category;
 - external dataset conventions and minimum useful image counts;
 - aspect-ratio handling for non-square products;
 - stronger artifact provenance and preprocessing metadata;
@@ -70,7 +74,8 @@ The system consists of independently versioned repositories for:
 - keep the public API independent of Python and UI implementation details;
 - make local startup reproducible through version-pinned container builds;
 - preserve CPU-only execution;
-- prevent test anomalies from influencing fitting or threshold selection;
+- prevent anomalous test images from influencing fitting or initial threshold calculation;
+- separate exploratory threshold comparison from independent final evaluation;
 - evolve artifact and HTTP contracts explicitly.
 
 ## System Context
@@ -167,8 +172,11 @@ The stack repository consumes published source refs. It does not duplicate appli
 configs/
   splits/
 docs/
+  experiments/
+    visa-candle-threshold-calibration.md
 scripts/
   create_mvtec_ad_split.py
+  evaluate_model_artifact.py
   evaluate_mvtec_ad_category.py
   export_image_directory_model.py
   export_mvtec_ad_model.py
@@ -183,6 +191,7 @@ src/
       image_discovery.py
       image_split.py
       image_split_manifest.py
+      labeled_image_manifest.py
     models/
     service/
       app.py
@@ -214,7 +223,7 @@ normal image directory
 -> ImagePathDataset + preprocessing
 -> ResNet18 patch embedding extractor
 -> fitting feature memory
--> validation scores and threshold
+-> validation scores and quantile threshold
 -> metadata.json + feature_memory.pt
 -> training_split.json
 ```
@@ -249,6 +258,12 @@ configs/splits/mvtec-ad-capsule-seed-42.json
 
 Manifest loading validates counts, duplicates, overlap, absolute paths, parent traversal, and dataset-root resolution. The refactored MVTec exporter delegates to the same `train_model_artifact` implementation as the generalized directory exporter.
 
+### Dataset-Independent Evaluation Manifests
+
+`load_labeled_image_manifest` reads CSV manifests with `image`, `group`, and `is_anomalous` columns. Paths are resolved relative to an explicit dataset root. Loading rejects unsupported image suffixes, invalid Boolean labels, duplicate paths, missing files, absolute paths, and parent traversal outside the dataset root.
+
+The generic `evaluate_model_artifact.py` CLI loads an exported artifact once, scores every manifest image in batches, and reports score distributions, confusion-matrix counts, classification metrics, group-level anomaly rates, false positives, and false negatives. Dataset-specific preparation remains outside the reusable evaluation core.
+
 ### Preprocessing
 
 The selected pipeline is:
@@ -282,9 +297,11 @@ Exact memory can be sampled deterministically, but experiments showed substantia
 
 Each query patch is compared with its nearest fitting-memory embedding through exact chunked Euclidean distance calculation. Chunking limits temporary allocations but does not reduce the stored feature memory.
 
-Patch scores are reshaped to the configured grid. The selected image score is the mean of the highest-scoring one percent of patches. The threshold is the maximum score among normal validation images. Scores strictly above the threshold are anomalous.
+Patch scores are reshaped to the configured grid. The selected image score is the mean of the highest-scoring one percent of patches. The threshold is selected from normal validation scores through a configurable quantile. A quantile of `1.0` preserves the former maximum-normal behavior. Scores strictly above the threshold are anomalous.
 
-Test labels, defect folders, and masks are excluded from fitting and threshold selection.
+Lower quantiles generally increase anomaly recall while also increasing false-positive risk. The selected threshold method and quantile are category-specific calibration state and are stored in artifact metadata.
+
+Test labels, defect folders, and masks are excluded from fitting and initial threshold calculation. If labeled test results are later used to compare quantiles, that comparison is exploratory calibration and must not be presented as an independent final evaluation.
 
 ### Visualization
 
@@ -300,6 +317,7 @@ Heatmaps are explanatory aids. They do not establish localization accuracy witho
 - nearest-neighbor memory chunk size;
 - input size;
 - top-score fraction;
+- normal-validation threshold quantile;
 - feature-memory sampling fraction;
 - sampling seed.
 
@@ -326,10 +344,11 @@ Metadata contains:
 - embedding dimension;
 - aggregation method and fraction;
 - threshold;
+- threshold method and quantile;
 - memory fraction and sampling seed;
 - feature-memory entry count.
 
-The writer validates tensor dimensions, finiteness, entry count, and embedding dimension. The loader reconstructs typed metadata and loads the tensor on CPU with `weights_only=True`.
+The writer validates tensor dimensions, finiteness, entry count, and embedding dimension. New generalized artifacts use schema version 2 and record `threshold_method` and `threshold_quantile`. The loader reconstructs typed metadata, applies maximum-normal compatibility defaults when loading schema-version-1 metadata, and loads the tensor on CPU with `weights_only=True`.
 
 ### Generalized Split Sidecar
 
@@ -348,6 +367,18 @@ Refactoring the Capsule manifest exporter through the shared training orchestrat
 ```text
 51DE3F2B4FEF804E9E95900597E738E86F7044A669D2739956CBA0CC6DE65478
 ```
+
+### Verified VisA Candle Calibration
+
+The generalized workflow was exercised on the VisA Candle category using the official one-class split. Three artifacts used identical preprocessing, training split, sampling configuration, and feature-memory bytes. Only their normal-validation threshold quantiles differed.
+
+| Variant | Quantile | Threshold | Precision | Recall | Specificity | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| q100 | 1.00 | 3.373678 | 1.0000 | 0.3100 | 1.0000 | 0.4733 |
+| q99 | 0.99 | 3.001366 | 1.0000 | 0.5600 | 1.0000 | 0.7179 |
+| q95 | 0.95 | 2.763051 | 0.9324 | 0.6900 | 0.9500 | 0.7931 |
+
+q95 is the provisional calibration candidate for subsequent validation. It is not an independently validated final result because the official Candle test images were inspected while comparing the quantiles.
 
 ### Future Artifact Evolution
 
@@ -460,13 +491,16 @@ Authentication, encrypted service-to-service transport, secret management, harde
 
 ### Python Tests
 
-The current 92 tests cover:
+The current 111 tests cover:
 
 - preprocessing, embeddings, memory, scoring, and evaluation;
 - artifact metadata, persistence, and invalid inputs;
 - path and stream inference;
 - image discovery and deterministic splitting;
 - split-manifest writing and path safety;
+- labeled evaluation-manifest parsing and path safety;
+- normal-score quantile selection and binary metrics;
+- schema-version-2 threshold metadata and schema-version-1 compatibility;
 - training configuration and orchestration invariants;
 - service settings and runtime lifecycle;
 - liveness, multipart prediction, validation, and heatmap encoding.
@@ -485,7 +519,8 @@ The stack CI validates Compose configuration, parses the PowerShell verification
 
 - exact nearest-neighbor search is memory and compute intensive;
 - multiple inference workers duplicate feature memory;
-- a maximum-normal threshold may be sensitive to small validation sets;
+- quantile thresholds are sensitive to validation-set size, representativeness, and the selected operating tradeoff;
+- selecting calibration parameters after inspecting test results compromises independent final evaluation;
 - direct square resizing may distort non-square products;
 - one-artifact runtime configuration does not yet support automatic category selection;
 - PyTorch tensor artifacts require trusted inputs;
@@ -524,13 +559,17 @@ The stack CI validates Compose configuration, parses the PowerShell verification
 15. Shared dataset-independent training orchestrator.
 16. Generalized 320 x 320 Bottle artifact verification.
 17. Byte-for-byte Capsule exporter compatibility verification.
-18. Ninety-two passing Python tests.
+18. Dataset-independent labeled-manifest artifact evaluation.
+19. Configurable normal-score quantile threshold calibration.
+20. Schema-version-2 threshold metadata with schema-version-1 loading compatibility.
+21. Exploratory VisA Candle calibration with q95 selected as a provisional candidate.
+22. One hundred eleven passing Python tests.
 
 ## Immediate Architectural Steps
 
-1. Evaluate the generalized workflow on a genuinely non-MVTec image collection.
-2. Define the external dataset contract and minimum useful normal-image counts.
-3. Add artifact evaluation against optional normal and anomalous test directories.
+1. Keep the q95 threshold strategy fixed and validate it on previously unused data or another suitable category.
+2. Define a strict calibration and independent final-test protocol for future categories.
+3. Define the external dataset contract and minimum useful normal-image counts.
 4. Design explicit multi-artifact selection across service, backend, and clients.
 5. Strengthen preprocessing provenance and artifact integrity metadata.
 6. Investigate coverage-preserving memory reduction and faster search.
@@ -539,6 +578,7 @@ The stack CI validates Compose configuration, parses the PowerShell verification
 ## Related Documentation
 
 - `DevelopmentStatus.md` records verified progress and current next steps.
+- `experiments/visa-candle-threshold-calibration.md` records the exploratory quantile comparison and its methodological limitation.
 - `DatasetDocumentation.md` records dataset provenance, storage, and licensing.
 - `ModelDevelopmentStrategy.md` defines fitting, validation, and experiment rules.
 - `ProjectSpecification.md` defines scope and requirements.

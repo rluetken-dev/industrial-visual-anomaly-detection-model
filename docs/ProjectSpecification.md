@@ -47,7 +47,7 @@ The system performs unsupervised visual anomaly detection from normal product im
 5. fused feature maps become 384-dimensional local patch embeddings;
 6. embeddings from normal fitting images form a category-specific feature memory;
 7. validation images are scored against that memory;
-8. the maximum normal-validation image score becomes the threshold;
+8. the configured quantile of normal-validation image scores becomes the threshold;
 9. new images receive patch scores, an image score, a normal/anomalous decision, and an anomaly heatmap.
 
 The system detects deviations from learned normal appearance. It does not identify the precise defect type.
@@ -68,15 +68,18 @@ Python remains authoritative for model fitting and inference. FastAPI exposes th
 - patch embeddings and feature-memory fitting;
 - exact chunked nearest-neighbor scoring;
 - top-fraction image aggregation;
-- normal-validation threshold selection;
-- exploratory Bottle and Capsule evaluation;
+- configurable normal-validation quantile threshold selection;
+- dataset-independent labeled-image CSV manifests and artifact evaluation;
+- exploratory Bottle, Capsule, and VisA Candle evaluation;
 - heatmap generation and Base64 PNG encoding;
-- Python/PyTorch artifact export, validation, loading, and inference;
+- schema-version-2 Python/PyTorch artifact export with threshold provenance;
+- schema-version-1 artifact loading compatibility;
+- artifact validation, loading, and inference;
 - persistent FastAPI runtime;
 - ASP.NET Core health, validation, analysis, and error contracts;
 - WPF health display, image preview, analysis results, and interactive heatmap overlay;
 - Docker Compose image builds, networking, health checks, artifact mounting, and local verification;
-- 92 passing Python tests plus separate backend, desktop, and stack CI.
+- 111 passing Python tests plus separate backend, desktop, and stack CI.
 
 ### Reference Evidence
 
@@ -86,11 +89,13 @@ Python remains authoritative for model fitting and inference. FastAPI exposes th
 - a known normal Bottle image was classified as normal;
 - a known defective Bottle image was classified as anomalous;
 - the complete client-to-backend-to-Python heatmap workflow is verified;
-- the backend and inference service start from a clean stack clone.
+- the backend and inference service start from a clean stack clone;
+- the VisA Candle generalized workflow uses 720 fitting and 180 validation images with a 288,000 x 384 sampled feature memory;
+- q95 produced 0.9324 precision, 0.6900 recall, 0.9500 specificity, and 0.7931 F1 in exploratory Candle calibration.
 
 ### Not Yet Implemented
 
-- general evaluation of an artifact against arbitrary normal and anomalous test directories;
+- independent confirmation of the provisional q95 threshold strategy on previously unused evidence;
 - multi-artifact loading or explicit category selection;
 - quantitative pixel-level localization metrics;
 - complete preprocessing and pretrained-weight provenance in artifact metadata;
@@ -205,14 +210,17 @@ Version-pinned backend and inference builds, Docker Compose networking, startup 
 
 ### Threshold and Evaluation
 
-- `FR-EVA-001` Thresholds shall derive only from held-out normal validation images.
-- `FR-EVA-002` The current threshold rule shall use the maximum normal-validation image score.
-- `FR-EVA-003` Test images and labels shall not influence fitting or threshold calculation.
-- `FR-EVA-004` Labeled evaluation shall report confusion counts, accuracy, precision, recall, and F1.
-- `FR-EVA-005` Defect-group evaluation shall report group score distributions and detection rates.
-- `FR-EVA-006` Results influenced by inspected test data shall be labeled exploratory.
-- `FR-EVA-007` A future general evaluator shall score an existing artifact against optional normal and anomalous test directories without refitting.
-- `FR-EVA-008` Future pixel evaluation shall use explicitly selected mask-based metrics.
+- `FR-EVA-001` Initial thresholds shall derive only from held-out normal validation images.
+- `FR-EVA-002` Threshold selection shall use a configurable normal-validation score quantile.
+- `FR-EVA-003` A quantile of `1.0` shall preserve maximum-normal threshold behavior.
+- `FR-EVA-004` Test images and labels shall not influence fitting or initial threshold calculation.
+- `FR-EVA-005` Dataset-independent evaluation shall accept a CSV manifest with `image`, `group`, and `is_anomalous` columns.
+- `FR-EVA-006` Evaluation-manifest paths shall resolve relative to an explicit dataset root.
+- `FR-EVA-007` Invalid labels, duplicates, missing files, absolute paths, unsupported image suffixes, and traversal outside the dataset root shall be rejected.
+- `FR-EVA-008` The general evaluator shall score an existing artifact without refitting it.
+- `FR-EVA-009` Labeled evaluation shall report score distributions, confusion counts, accuracy, precision, recall, specificity, F1, group rates, false positives, and false negatives.
+- `FR-EVA-010` Results used to select calibration parameters shall be labeled exploratory and shall not also be claimed as an independent final evaluation.
+- `FR-EVA-011` Future pixel evaluation shall use explicitly selected mask-based metrics.
 
 ### Visualization
 
@@ -227,12 +235,13 @@ Version-pinned backend and inference builds, Docker Compose networking, startup 
 
 - `FR-ART-001` A core artifact shall contain `metadata.json` and `feature_memory.pt`.
 - `FR-ART-002` Generalized directory export shall additionally contain `training_split.json`.
-- `FR-ART-003` Metadata shall include schema, dataset, category, backbone, input and grid sizes, embedding dimension, aggregation, threshold, sampling configuration, and memory entry count.
+- `FR-ART-003` Schema-version-2 metadata shall include schema, dataset, category, backbone, input and grid sizes, embedding dimension, aggregation, threshold, threshold method, threshold quantile, sampling configuration, and memory entry count.
 - `FR-ART-004` Artifact writing shall validate tensor dimensions, finiteness, entry count, and embedding dimension.
 - `FR-ART-005` Artifact loading shall use CPU loading and `weights_only=True`.
 - `FR-ART-006` Generated artifacts shall remain excluded from Git.
 - `FR-ART-007` Current artifacts shall be identified as trusted Python/PyTorch deployment inputs.
 - `FR-ART-008` Existing manifest-based exports shall remain behaviorally compatible after shared-training refactoring.
+- `FR-ART-009` Schema-version-1 artifacts shall remain loadable through maximum-normal threshold compatibility defaults.
 
 ### Internal Python Service
 
@@ -280,8 +289,9 @@ Version-pinned backend and inference builds, Docker Compose networking, startup 
 
 - `BR-MOD-001` Only normal fitting images may populate feature memory.
 - `BR-MOD-002` Unrelated categories shall use separate artifacts.
-- `BR-EVA-001` Normal validation images may determine thresholds but may not populate feature memory.
-- `BR-EVA-002` Test labels may support evaluation but not fitting or threshold selection.
+- `BR-EVA-001` Normal validation images may determine initial thresholds but may not populate feature memory.
+- `BR-EVA-002` Test labels may support evaluation but not fitting or initial threshold calculation.
+- `BR-EVA-003` Labeled results used for calibration shall not also be represented as an untouched final benchmark.
 - `BR-ART-001` Released artifacts shall be immutable.
 - `BR-ART-002` Artifact identity shall remain traceable to category, configuration, and source revision.
 - `BR-CLI-001` User-facing scripts shall not duplicate core fitting logic.
@@ -297,6 +307,8 @@ Version-pinned backend and inference builds, Docker Compose networking, startup 
 - `NFR-REP-003` Exact generalized split membership shall be persisted.
 - `NFR-REP-004` Dependencies and supported Python version shall be recorded.
 - `NFR-REP-005` Existing reference exports shall be regression-checked during refactoring.
+- `NFR-REP-006` Threshold method and quantile shall be persisted in new artifact metadata.
+- `NFR-REP-007` Evaluation manifests shall preserve explicit image, group, and expected-label identity.
 
 ### Performance and Resource Use
 
@@ -333,7 +345,7 @@ Version-pinned backend and inference builds, Docker Compose networking, startup 
 - `AC-GEN-005` A known normal Bottle image is classified as normal.
 - `AC-GEN-006` A known defective Bottle image is classified as anomalous.
 - `AC-GEN-007` The established Capsule feature memory remains byte-for-byte reproducible after refactoring.
-- `AC-GEN-008` All 92 Python tests pass.
+- `AC-GEN-008` The generalized fitting implementation remains covered by the passing Python suite.
 
 ### Artifact and Inference MVP – Achieved
 
@@ -363,11 +375,23 @@ Version-pinned backend and inference builds, Docker Compose networking, startup 
 - `AC-STK-003` A clean clone completes real Capsule analysis and heatmap verification with a local artifact.
 - `AC-STK-004` Teardown and restart reproduce the healthy state.
 
-### General Evaluation Expansion – Pending
+### General Evaluation and Calibration Milestone – Achieved
 
-- `AC-EVA-001` An exported artifact can be evaluated against arbitrary normal and anomalous test directories without refitting.
-- `AC-EVA-002` The generalized workflow is evaluated on a non-MVTec image collection.
-- `AC-EVA-003` Minimum recommended normal-image counts are documented from evidence.
+- `AC-EVA-001` An exported artifact can be evaluated through a dataset-independent labeled-image CSV manifest without refitting.
+- `AC-EVA-002` Invalid evaluation manifests and unsafe paths are rejected.
+- `AC-EVA-003` Evaluation reports score distributions, confusion counts, metrics, group rates, false positives, and false negatives.
+- `AC-EVA-004` The generalized workflow is evaluated on the non-MVTec VisA Candle category.
+- `AC-EVA-005` Threshold method and quantile are stored in schema-version-2 metadata.
+- `AC-EVA-006` Schema-version-1 artifacts remain loadable.
+- `AC-EVA-007` q100, q99, and q95 Candle artifacts have identical feature-memory SHA-256 hashes.
+- `AC-EVA-008` q95 is documented as a provisional calibration candidate rather than an independent final benchmark.
+- `AC-EVA-009` All 111 Python tests pass.
+
+### Independent Threshold Validation – Pending
+
+- `AC-VAL-001` The q95 threshold strategy is evaluated without further tuning on previously unused evidence or another suitable category.
+- `AC-VAL-002` A strict calibration and independent final-test protocol is documented.
+- `AC-VAL-003` Minimum recommended normal-image counts are documented from evidence.
 
 ### Multi-Artifact Milestone – Pending
 
@@ -387,11 +411,12 @@ Version-pinned backend and inference builds, Docker Compose networking, startup 
 - artifacts depend on trusted PyTorch tensor serialization;
 - feature memories are large and exact search is compute-intensive;
 - multiple service workers duplicate feature memory;
-- maximum-normal threshold selection may be unstable for small validation sets;
+- quantile threshold selection may be unstable for small or unrepresentative validation sets;
+- the provisional q95 result is not independently validated because Candle test results influenced its selection;
 - direct square resizing may distort non-square products;
 - current artifact metadata does not fully describe preprocessing or pretrained weights;
 - the service currently loads one artifact;
-- generalized fitting has not yet been evaluated on a truly external non-MVTec dataset;
+- the generalized fitting and evaluation workflow has been exercised on VisA Candle but requires additional cross-category validation;
 - Bottle smoke tests do not replace complete evaluation;
 - heatmaps lack quantitative pixel-level validation;
 - Base64 heatmaps increase response size;
@@ -419,9 +444,11 @@ Version-pinned backend and inference builds, Docker Compose networking, startup 
 5. **WPF analysis and heatmap MVP – completed.**
 6. **Docker Compose local stack – completed.**
 7. **General external-directory fitting – completed.**
-8. **General artifact evaluation – next.**
-9. **Multi-artifact category selection – planned.**
-10. **Production and public artifact hardening – future.**
+8. **Dataset-independent artifact evaluation – completed.**
+9. **VisA Candle threshold calibration – completed exploratorily.**
+10. **Independent fixed-threshold validation – next.**
+11. **Multi-artifact category selection – planned.**
+12. **Production and public artifact hardening – future.**
 
 ## Related Documentation
 
@@ -429,6 +456,7 @@ Version-pinned backend and inference builds, Docker Compose networking, startup 
 - `DatasetDocumentation.md` – dataset sources, licenses, inventories, and validation
 - `DevelopmentStatus.md` – verified implementation status
 - `ModelDevelopmentStrategy.md` – fitting, validation, evaluation, and approval rules
+- `experiments/visa-candle-threshold-calibration.md` – exploratory q100/q99/q95 comparison and methodological limitation
 - a future `ModelCard.md` – released artifact behavior and limitations
 
 ## Last Updated

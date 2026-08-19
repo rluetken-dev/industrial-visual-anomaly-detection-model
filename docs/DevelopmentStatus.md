@@ -10,7 +10,9 @@ It distinguishes between automated verification, manually verified integration b
 
 The project has completed its initial model-development, artifact-export, inference-service, backend-integration, WPF desktop-client, heatmap-visualization, and Docker Compose orchestration milestones.
 
-The current phase generalizes category-specific model fitting so that an artifact can be created directly from an external directory of normal PNG or JPEG images. The first generalized directory-based export was verified with MVTec AD Bottle images. Multi-artifact runtime selection and evaluation on a genuinely non-MVTec image collection remain future work.
+The generalized directory-based fitting milestone is complete. The workflow was first verified with MVTec AD Bottle and has now been exercised on the independent VisA Candle dataset. Dataset-independent labeled-image evaluation, configurable normal-score quantile thresholds, artifact schema version 2, and schema-version-1 loading compatibility are implemented.
+
+The current phase focuses on validating the fixed provisional q95 threshold strategy without further tuning against the already inspected Candle test split. Multi-artifact runtime selection remains future work.
 
 The implemented system can:
 
@@ -21,7 +23,9 @@ The implemented system can:
 - extract frozen multi-scale ResNet18 features;
 - build category-specific normal feature memories;
 - calculate exact chunked nearest-neighbor anomaly scores;
-- derive thresholds only from held-out normal images;
+- derive configurable quantile thresholds only from held-out normal images;
+- load dataset-independent labeled-image CSV manifests;
+- evaluate exported artifacts with score distributions, confusion matrices, metrics, group rates, and error lists;
 - evaluate complete MVTec AD category test partitions;
 - export and reload versioned model artifacts;
 - classify images from paths or binary streams;
@@ -48,7 +52,7 @@ normal source images
 -> exact chunked nearest-neighbor search
 -> patch anomaly scores
 -> top-fraction image-score aggregation
--> normal-validation-derived threshold
+-> normal-validation quantile threshold
 -> versioned artifact
 -> normal/anomalous decision and anomaly heatmap
 ```
@@ -73,7 +77,7 @@ The fitting process does not fine-tune ResNet18. It constructs the feature memor
 | Docker Engine | 29.6.1 |
 | Docker Compose | 5.3.0 |
 
-The Python version is recorded in `.python-version`, and direct dependencies are pinned in `requirements.txt`. Source compilation and `pip check` succeed. The Python suite currently contains 92 passing tests.
+The Python version is recorded in `.python-version`, and direct dependencies are pinned in `requirements.txt`. Source compilation and `pip check` succeed. The Python suite currently contains 111 passing tests.
 
 The FastAPI test client emits a third-party Starlette deprecation warning concerning HTTPX. It does not fail the suite and should be handled during a focused dependency update.
 
@@ -82,6 +86,8 @@ The FastAPI test client emits a third-party Starlette deprecation warning concer
 Datasets are stored outside Git. Dataset archives, extracted images, validation reports, generated split sidecars, feature memories, artifacts, and experiment outputs are excluded from the repository.
 
 The locally acquired MVTec AD, MVTec LOCO AD, and MVTec AD 2 datasets pass the implemented structure, readability, inventory, mask-name, and mask-content checks. Private MVTec AD 2 ground truth is not stored locally.
+
+The official VisA archive was downloaded and verified locally with SHA-256 `2EB8690C803AB37DE0324772964100169EC8BA1FA3F7E94291C9CA673F40F362`. The Candle inventory and official one-class split were verified before training and evaluation.
 
 Generated generalized splits use relative paths and are validated for counts, duplicates, overlap, and unsafe traversal. Defect images are not used for feature-memory construction or threshold selection.
 
@@ -99,6 +105,7 @@ The model can now be fitted without an MVTec-specific manifest. The generalized 
     --split-seed 42 `
     --input-size 320 `
     --top-fraction 0.01 `
+    --threshold-quantile 0.95 `
     --memory-fraction 1.0 `
     --sampling-seed 42
 ```
@@ -109,11 +116,54 @@ The exporter:
 2. rejects missing, empty, or invalid source directories;
 3. creates non-overlapping deterministic fitting and validation partitions;
 4. builds the feature memory from fitting images;
-5. derives the threshold from validation images;
-6. exports `metadata.json` and `feature_memory.pt`;
+5. derives the configured normal-score quantile threshold from validation images;
+6. exports schema-version-2 `metadata.json` and `feature_memory.pt`;
 7. writes exact split membership to `training_split.json` with relative paths.
 
 The established `export_mvtec_ad_model.py` workflow remains supported and delegates to the same reusable training implementation.
+
+## Dataset-Independent Artifact Evaluation
+
+The generic evaluator accepts an exported artifact, a dataset root, and a CSV manifest containing `image`, `group`, and `is_anomalous` columns:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\evaluate_model_artifact.py `
+    --artifact .\outputs\model-artifacts\visa-candle-generalized-q95-320 `
+    --dataset-root C:\path\to\visa\extracted `
+    --manifest C:\path\to\visa\evaluation_manifest.csv
+```
+
+Manifest paths are resolved relative to the dataset root. Loading validates required columns, labels, supported file types, duplicate paths, missing files, absolute paths, and parent traversal.
+
+The evaluator loads the artifact once and reports score distributions, confusion-matrix counts, accuracy, precision, recall, specificity, F1 score, group-level anomaly rates, false positives, and false negatives.
+
+## VisA Candle Threshold Calibration
+
+The VisA Candle official one-class split contains 900 normal training images, 100 normal test images, and 100 anomalous test images. The generalized exporter divided the 900 training images deterministically into 720 fitting and 180 validation images.
+
+Shared configuration:
+
+| Property | Verified value |
+| --- | --- |
+| Input size | 320 x 320 |
+| Patch grid | 40 x 40 |
+| Embedding dimension | 384 |
+| Complete fitting memory | 1,152,000 x 384 |
+| Exported feature memory | 288,000 x 384 |
+| Memory fraction | 0.25 |
+| Sampling seed | 42 |
+| Top fraction | 0.01 |
+| Split seed | 42 |
+
+The q100, q99, and q95 artifacts have identical feature-memory SHA-256 hashes. Only their thresholds differ.
+
+| Variant | Quantile | Threshold | TP | TN | FP | FN | Accuracy | Precision | Recall | Specificity | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| q100 | 1.00 | 3.373678 | 31 | 100 | 0 | 69 | 0.6550 | 1.0000 | 0.3100 | 1.0000 | 0.4733 |
+| q99 | 0.99 | 3.001366 | 56 | 100 | 0 | 44 | 0.7800 | 1.0000 | 0.5600 | 1.0000 | 0.7179 |
+| q95 | 0.95 | 2.763051 | 69 | 95 | 5 | 31 | 0.8200 | 0.9324 | 0.6900 | 0.9500 | 0.7931 |
+
+q95 is the provisional calibration candidate for a review-oriented inspection workflow. The official Candle test images were inspected while comparing the variants, so this is an exploratory calibration result rather than an independently validated final estimate. Further tuning against the same test split is intentionally excluded.
 
 ## Generalized Bottle Verification
 
@@ -220,7 +270,7 @@ model-artifact/
   training_split.json
 ```
 
-Metadata records dataset, category, backbone, input and patch-grid sizes, embedding dimension, aggregation, threshold, sampling configuration, and feature-memory entry count. The split sidecar records seed, requested validation fraction, counts, and exact fitting and validation membership.
+Schema-version-2 metadata records dataset, category, backbone, input and patch-grid sizes, embedding dimension, aggregation, threshold, threshold method, threshold quantile, sampling configuration, and feature-memory entry count. The loader applies maximum-normal compatibility defaults to schema-version-1 artifacts. The split sidecar records seed, requested validation fraction, counts, and exact fitting and validation membership.
 
 ## Inference and Application Integration
 
@@ -255,7 +305,7 @@ A clean-clone verification confirmed inference liveness, backend liveness, backe
 
 ## Automated Tests and Quality Checks
 
-The Python repository has 92 passing tests covering deterministic model components, artifacts, inference, image discovery, deterministic splitting, split-manifest persistence, generalized training invariants, service configuration, runtime lifecycle, FastAPI behavior, upload validation, and heatmap encoding.
+The Python repository has 111 passing tests covering deterministic model components, quantile threshold selection, binary metrics, schema-version compatibility, artifacts, inference, image discovery, deterministic splitting, split-manifest persistence, labeled evaluation-manifest safety, generalized training invariants, service configuration, runtime lifecycle, FastAPI behavior, upload validation, and heatmap encoding.
 
 The following checks pass:
 
@@ -271,8 +321,12 @@ Dataset-dependent evaluation, large artifact exports, real service startup, and 
 ## Current Repository Shape
 
 ```text
+docs/
+  experiments/
+    visa-candle-threshold-calibration.md
 scripts/
   create_mvtec_ad_split.py
+  evaluate_model_artifact.py
   evaluate_mvtec_ad_category.py
   export_image_directory_model.py
   export_mvtec_ad_model.py
@@ -287,6 +341,7 @@ src/
       image_discovery.py
       image_split.py
       image_split_manifest.py
+      labeled_image_manifest.py
     models/
     service/
     evaluation.py
@@ -308,8 +363,11 @@ tests/
 - exact chunked nearest-neighbor search;
 - complete feature memory as the quality baseline;
 - top-one-percent mean aggregation;
-- maximum normal-validation score as threshold;
+- configurable normal-validation score quantile as threshold;
+- q95 as the provisional VisA Candle calibration candidate, pending independent confirmation;
 - deterministic external-directory splits with recorded manifests;
+- dataset-independent labeled-image CSV manifests for artifact evaluation;
+- schema-version-2 threshold metadata with schema-version-1 loading compatibility;
 - Python as the authoritative inference runtime;
 - FastAPI as the internal service boundary;
 - ASP.NET Core as the public client-neutral API;
@@ -326,7 +384,7 @@ tests/
 - quantitative pixel-level metrics and map smoothing;
 - stronger artifact provenance, preprocessing metadata, and checksums;
 - public artifact release contents;
-- future threshold calibration;
+- strict calibration and independent final-test protocol for future categories;
 - timeout, retry, cancellation, and concurrency policies.
 
 ## Deferred Work
@@ -345,19 +403,19 @@ tests/
 
 ## Immediate Next Steps
 
-1. Evaluate the generalized workflow on a non-MVTec normal-image collection.
-2. Define the external dataset contract and minimum useful image counts.
-3. Add artifact evaluation against optional normal and anomalous test directories.
+1. Keep q95 fixed and validate the threshold strategy on previously unused data or another suitable category.
+2. Define a strict calibration and independent final-test protocol for future categories.
+3. Define the external dataset contract and minimum useful image counts.
 4. Decide how multiple category artifacts are selected by the inference service and backend.
 5. Strengthen artifact provenance, preprocessing metadata, and checksums.
 6. Investigate coverage-preserving memory reduction and faster nearest-neighbor search.
-7. Update release documentation after the generalized training milestone is finalized.
+7. Update release documentation after the evaluation and calibration milestone is finalized.
 
 ## Last Verified Status
 
 As of 2026-08-19:
 
-- 92 Python tests pass;
+- 111 Python tests pass;
 - compilation, dependency, and whitespace checks pass;
 - normal PNG and JPEG images can be discovered recursively;
 - deterministic fitting and validation splits are independent of MVTec;
@@ -365,10 +423,15 @@ As of 2026-08-19:
 - a 320 x 320 Bottle artifact was fitted directly from a normal-image directory;
 - known normal and defective Bottle images produced the expected decisions;
 - the established Capsule artifact remains byte-for-byte reproducible;
+- the generalized workflow has been exercised on the VisA Candle category;
+- dataset-independent labeled-image artifact evaluation is implemented;
+- q100, q99, and q95 Candle artifacts use identical feature memories;
+- q95 is recorded as a provisional calibration candidate requiring independent confirmation;
+- schema-version-2 artifacts record threshold method and quantile while schema-version-1 artifacts remain loadable;
 - the FastAPI service returns anomaly decisions and heatmaps;
 - the backend forwards the verified analysis contract;
 - the desktop client displays interactive heatmap overlays;
 - the Docker Compose stack runs the versioned backend and inference service from a clean clone;
 - generated datasets and artifacts remain excluded from Git.
 
-The next active milestone is validating the generalized workflow on genuinely external data, followed by explicit multi-category artifact selection.
+The next active milestone is validating the fixed q95 threshold strategy on previously unused evidence without further tuning against the inspected Candle test split. Explicit multi-category artifact selection follows afterward.

@@ -16,14 +16,14 @@ The strategy is designed to prevent:
 
 ## Strategy Status
 
-The first end-to-end model-development and application-integration cycles are complete. Bottle established the initial pipeline, Capsule tested category generalization and artifact-based inference, and the generalized directory exporter proved that fitting no longer depends on an MVTec-specific manifest.
+The first end-to-end model-development and application-integration cycles are complete. Bottle established the initial pipeline, Capsule tested category generalization and artifact-based inference, and the generalized directory exporter proved that fitting no longer depends on an MVTec-specific manifest. VisA Candle has now exercised the generalized workflow on a separate dataset family, including dataset-independent artifact evaluation and exploratory threshold calibration.
 
 The current strategy supports two fitting entry points:
 
 1. a versioned manifest for controlled dataset experiments;
 2. an external directory containing normal PNG or JPEG images.
 
-Both entry points delegate to the same dataset-independent training implementation and produce category-specific artifacts.
+Both entry points delegate to the same dataset-independent training implementation and produce category-specific artifacts. Labeled evaluation is supplied separately through dataset-independent CSV manifests.
 
 ## Implemented and Verified Capabilities
 
@@ -37,14 +37,15 @@ Both entry points delegate to the same dataset-independent training implementati
 - complete and optionally sampled feature memories;
 - exact chunked nearest-neighbor scoring;
 - top-fraction image-score aggregation;
-- normal-validation threshold selection;
-- image-level evaluation and grouped error reporting;
+- configurable normal-validation quantile threshold selection;
+- dataset-independent labeled-image CSV manifests;
+- artifact evaluation with score distributions, confusion matrices, classification metrics, group rates, and error lists;
 - anomaly heatmaps;
 - typed artifact writing, validation, loading, and inference;
 - path and stream inference parity;
 - persistent FastAPI inference runtime;
 - backend, desktop heatmap, and Docker-stack integration;
-- 92 passing automated Python tests.
+- 111 passing automated Python tests.
 
 These capabilities establish a functioning reference implementation. They do not establish production readiness, regulatory validation, real-world transfer, or quantitative localization accuracy.
 
@@ -54,17 +55,18 @@ These capabilities establish a functioning reference implementation. They do not
 2. Keep one artifact scoped to one product category or visually coherent product family.
 3. Never mix unrelated categories into one feature memory merely to simplify deployment.
 4. Use only normal fitting images to construct the feature memory.
-5. Use held-out normal images to select the threshold.
-6. Keep final test images and anomaly labels out of fitting and threshold selection.
-7. Preserve preprocessing and scoring semantics across fitting, CLI, service, backend, and clients.
-8. Record every reproducibility-critical choice.
-9. Prefer explicit, testable components over hidden framework behavior.
-10. Change one experimental variable at a time whenever practical.
-11. Compare optimizations against a complete-memory reference.
-12. Treat heatmaps as explanation aids until localization metrics are implemented.
-13. Mark results as exploratory when inspected test data influenced development.
-14. Reject unsupported or ambiguous input early.
-15. Keep generated datasets and artifacts outside Git.
+5. Use held-out normal images to calculate the initial threshold.
+6. Keep final test images and anomaly labels out of fitting and initial threshold calculation.
+7. Separate threshold calibration evidence from independent final-test evidence.
+8. Preserve preprocessing and scoring semantics across fitting, CLI, service, backend, and clients.
+9. Record every reproducibility-critical choice.
+10. Prefer explicit, testable components over hidden framework behavior.
+11. Change one experimental variable at a time whenever practical.
+12. Compare optimizations against a complete-memory reference.
+13. Treat heatmaps as explanation aids until localization metrics are implemented.
+14. Mark results as exploratory when inspected test data influenced development.
+15. Reject unsupported or ambiguous input early.
+16. Keep generated datasets and artifacts outside Git.
 
 ## Evidence-Gated Development Process
 
@@ -76,8 +78,10 @@ problem and category definition
 -> preprocessing verification
 -> feature-extractor verification
 -> feature-memory fitting
--> normal-validation threshold
--> optional test evaluation
+-> initial normal-validation quantile threshold
+-> optional calibration evaluation
+-> freeze configuration
+-> independent final evaluation
 -> qualitative heatmap review
 -> artifact export
 -> offline inference verification
@@ -168,9 +172,10 @@ Manifest loading validates counts, duplicates, overlap, relative path safety, an
 ### Partition Roles
 
 - **Fitting:** construct the normal feature memory.
-- **Normal validation:** inspect the normal-score distribution and derive the threshold.
-- **Normal test:** estimate false-positive behavior on unseen normal data.
-- **Anomalous test:** estimate detection behavior and failure modes.
+- **Normal validation:** inspect the normal-score distribution and calculate the initial quantile threshold.
+- **Calibration evaluation:** compare a limited, predeclared set of operating choices when necessary; results used here are no longer an untouched final estimate.
+- **Normal final test:** estimate false-positive behavior on unseen normal data after configuration is frozen.
+- **Anomalous final test:** estimate detection behavior and failure modes after configuration is frozen.
 - **Masks:** evaluate localization only; never influence fitting or image-level threshold selection.
 
 ## Preprocessing Strategy
@@ -238,15 +243,17 @@ Aggregation parameters belong to artifact metadata and must not change during in
 
 ## Threshold Strategy
 
-The current threshold is:
+The implemented threshold rule is:
 
 ```text
-threshold = maximum(normal validation image scores)
+threshold = quantile(normal validation image scores, configured quantile)
 ```
 
-Only scores strictly above the threshold are anomalous.
+Only scores strictly above the threshold are anomalous. A quantile of `1.0` preserves the former maximum-normal rule.
 
-This rule constrains false positives on the observed normal-validation distribution but does not directly optimize anomaly recall. It can be unstable for very small or unrepresentative validation sets. Alternative calibration must be defined without tuning on the final reported test labels.
+Lower quantiles generally increase recall while also increasing false-positive risk. The selected quantile is category-specific calibration state, not a universal project constant. It is recorded together with the threshold method in schema-version-2 artifact metadata.
+
+A quantile may be selected from declared operational requirements, separate calibration evidence, or a predefined project policy. If labeled test results are inspected while choosing it, those results become exploratory calibration evidence and must not be reused as an independent final benchmark.
 
 ## Evaluation Strategy
 
@@ -263,7 +270,9 @@ For labeled test data, report:
 
 ### Generalized Artifact Evaluation
 
-The directory exporter proves fitting independence but does not yet provide a general labeled-test evaluator. The next evaluation component should accept optional normal and anomalous test directories and score a previously exported artifact without refitting it.
+The generic evaluator loads a previously exported artifact and a CSV manifest containing `image`, `group`, and `is_anomalous` columns. Paths are resolved against an explicit dataset root. The loader rejects missing columns, invalid labels, unsupported suffixes, duplicate paths, missing files, absolute paths, and traversal outside the root.
+
+Evaluation reports score distributions, confusion-matrix counts, accuracy, precision, recall, specificity, F1 score, group-level anomaly rates, false positives, false negatives, and timings. Evaluation never refits or modifies the artifact.
 
 ### Pixel-Level Evaluation
 
@@ -309,6 +318,20 @@ Smoke predictions classified Bottle `test/good/000.png` as normal and `test/brok
 
 The exploratory MVTec results are development evidence rather than untouched benchmark claims.
 
+### Exploratory VisA Candle Calibration at 320 x 320
+
+The official VisA Candle one-class split supplied 900 normal training images, 100 normal test images, and 100 anomalous test images. The generalized exporter created a deterministic 720/180 fitting and validation split and sampled 25 percent of the complete fitting feature memory.
+
+The q100, q99, and q95 artifacts have identical feature-memory SHA-256 hashes. Only their normal-validation thresholds differ.
+
+| Variant | Quantile | Threshold | TP | TN | FP | FN | Precision | Recall | Specificity | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| q100 | 1.00 | 3.373678 | 31 | 100 | 0 | 69 | 1.0000 | 0.3100 | 1.0000 | 0.4733 |
+| q99 | 0.99 | 3.001366 | 56 | 100 | 0 | 44 | 1.0000 | 0.5600 | 1.0000 | 0.7179 |
+| q95 | 0.95 | 2.763051 | 69 | 95 | 5 | 31 | 0.9324 | 0.6900 | 0.9500 | 0.7931 |
+
+q95 is the provisional candidate for a review-oriented workflow. It is not independently validated because the official Candle test results were inspected while comparing quantiles. The strategy therefore freezes q95 for the next validation step and prohibits further tuning against the same Candle test split.
+
 ## Experiment Management
 
 Every meaningful experiment should record:
@@ -324,7 +347,8 @@ Every meaningful experiment should record:
 - feature layers and embedding dimension;
 - memory fraction and sampling seed;
 - distance and chunk configuration;
-- aggregation and threshold method;
+- aggregation, threshold method, and threshold quantile;
+- whether each labeled partition was used for calibration or independent final evaluation;
 - metrics, timings, and failure examples;
 - output artifact location and checksum;
 - relevant source revision and dependency versions.
@@ -363,7 +387,7 @@ The generalized exporter additionally creates:
   training_split.json
 ```
 
-Metadata records schema, dataset, category, backbone, input size, patch grid, embedding dimension, aggregation, threshold, memory fraction, sampling seed, and entry count.
+Schema-version-2 metadata records schema, dataset, category, backbone, input size, patch grid, embedding dimension, aggregation, threshold, threshold method, threshold quantile, memory fraction, sampling seed, and entry count. The loader preserves schema-version-1 compatibility by applying maximum-normal threshold defaults.
 
 The split sidecar records seed, ratios, counts, and exact relative path membership. The current `torch.save` tensor format is trusted deployment input. Framework-neutral storage remains optional future portability work.
 
@@ -398,7 +422,8 @@ A category artifact may become an internal reference only when:
 - fitting and validation roles are reproducible;
 - preprocessing and feature extraction are verified;
 - memory and aggregation configuration are explicit;
-- threshold derivation is documented;
+- threshold derivation and quantile are documented;
+- calibration evidence is separated from independent final-test evidence;
 - artifact export and loading succeed;
 - known normal and anomalous examples behave plausibly;
 - evaluation evidence and limitations are disclosed;
@@ -418,7 +443,7 @@ A model artifact may be released publicly only when:
 - limitations and intended use are documented in a Model Card;
 - no restricted dataset content is embedded unintentionally.
 
-Current local Capsule and Bottle artifacts do not yet satisfy this release gate.
+Current local Capsule, Bottle, and VisA Candle artifacts do not yet satisfy this release gate.
 
 ## Failure Analysis Strategy
 
@@ -471,13 +496,17 @@ False negatives are the primary inspection risk, but false positives matter oper
 14. Generalized 320 x 320 Bottle artifact export.
 15. Normal and anomalous Bottle smoke predictions.
 16. Byte-for-byte Capsule exporter compatibility verification.
-17. Ninety-two passing Python tests.
+17. Dataset-independent labeled-manifest artifact evaluation.
+18. Configurable normal-score quantile threshold selection.
+19. Schema-version-2 threshold metadata and schema-version-1 loading compatibility.
+20. Exploratory VisA Candle threshold calibration with q95 selected provisionally.
+21. One hundred eleven passing Python tests.
 
 ## Immediate Next Steps
 
-1. Evaluate the generalized workflow on a genuinely non-MVTec normal-image collection.
-2. Define the supported external dataset contract and recommended image counts.
-3. Add general artifact evaluation against optional normal and anomalous test directories.
+1. Keep q95 fixed and validate the strategy on previously unused data or another suitable category.
+2. Define a strict calibration and independent final-test protocol for future categories.
+3. Define the supported external dataset contract and recommended image counts.
 4. Design explicit multi-artifact selection across service, backend, and clients.
 5. Add stronger artifact provenance, preprocessing metadata, and checksums.
 6. Investigate coverage-preserving memory reduction and faster search.
@@ -489,6 +518,7 @@ False negatives are the primary inspection risk, but false positives matter oper
 - `ArchitectureOverview.md` describes system boundaries and runtime flow.
 - `DatasetDocumentation.md` records dataset sources, licenses, and validation.
 - `DevelopmentStatus.md` records verified implementation progress.
+- `experiments/visa-candle-threshold-calibration.md` records the exploratory calibration evidence and its methodological limitation.
 - `ProjectSpecification.md` defines scope and requirements.
 - a future `ModelCard.md` will document a released evaluated artifact.
 

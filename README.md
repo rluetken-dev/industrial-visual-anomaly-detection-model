@@ -11,7 +11,7 @@ Industrial Visual Anomaly Detection is an educational and portfolio-oriented com
 
 The implemented Python MVP uses a frozen pretrained ResNet18 and a PatchCore-inspired feature-memory approach. It can discover normal PNG and JPEG images from external directories, create reproducible fitting and validation splits, build category-specific anomaly models, evaluate them, generate heatmaps, export reusable artifacts, classify individual images on CPU, and expose a loaded artifact through an internal FastAPI inference service.
 
-> **Current status:** The Python model-development, generalized artifact export, local inference, and internal HTTP inference-service MVPs are implemented. Bottle and Capsule have been evaluated exploratorily. The established Capsule artifact remains byte-for-byte reproducible through the refactored exporter, and a Bottle artifact has been trained directly from a normal-image directory without an MVTec-specific manifest. The generalized export records its deterministic fitting and validation split in `training_split.json`. A total of 92 automated tests cover the main deterministic, training, artifact, inference, and service components.
+> **Current status:** The Python model-development, generalized artifact export, dataset-independent evaluation, local inference, and internal HTTP inference-service MVPs are implemented. Bottle and Capsule have been evaluated exploratorily on MVTec AD, and the generalized workflow has been exercised on the VisA Candle category. Exported artifacts can record quantile-based normal-validation thresholds, while schema-1 artifacts remain loadable through compatibility defaults. The generalized export records its deterministic fitting and validation split in `training_split.json`. A total of 111 automated tests cover the main deterministic, training, artifact, evaluation, inference, and service components.
 
 ## What the Model Does
 
@@ -44,8 +44,9 @@ The current output is `normal` or `anomalous`. It does not classify the exact de
 - optional deterministic random feature-memory sampling;
 - exact chunked Euclidean nearest-neighbor scoring;
 - maximum and top-fraction-mean image-score aggregation;
-- normal-validation-based threshold selection;
-- image-level evaluation metrics and defect-group reporting;
+- configurable normal-validation quantile threshold selection;
+- dataset-independent labeled-image evaluation through CSV manifests;
+- image-level evaluation metrics, score distributions, confusion matrices, and group reporting;
 - anomaly heatmaps and image overlays;
 - versioned Python/PyTorch model artifact export and loading;
 - reusable file-path and binary-stream inference APIs;
@@ -137,6 +138,8 @@ industrial-visual-anomaly-detection-model/
 │       ├── mvtec-ad-bottle-seed-42.json
 │       └── mvtec-ad-capsule-seed-42.json
 ├── docs/
+│   ├── experiments/
+│   │   └── visa-candle-threshold-calibration.md
 │   ├── ArchitectureOverview.md
 │   ├── DatasetDocumentation.md
 │   ├── DevelopmentStatus.md
@@ -144,6 +147,7 @@ industrial-visual-anomaly-detection-model/
 │   └── ProjectSpecification.md
 ├── scripts/
 │   ├── create_mvtec_ad_split.py
+│   ├── evaluate_model_artifact.py
 │   ├── evaluate_mvtec_ad_category.py
 │   ├── export_image_directory_model.py
 │   ├── export_mvtec_ad_model.py
@@ -252,7 +256,7 @@ Activation is optional. All commands below call the environment interpreter expl
     -v
 ```
 
-The current suite contains 92 tests. The GitHub Actions workflow runs equivalent checks with Python 3.12 on Ubuntu for every push and pull request targeting `main`.
+The current suite contains 111 tests. The GitHub Actions workflow runs equivalent checks with Python 3.12 on Ubuntu for every push and pull request targeting `main`.
 
 ## Dataset Setup
 
@@ -261,6 +265,7 @@ Download datasets directly from their official sources and store them outside th
 - [MVTec AD](https://www.mvtec.com/research-teaching/datasets/mvtec-ad)
 - [MVTec LOCO AD](https://www.mvtec.com/research-teaching/datasets/mvtec-loco-ad)
 - [MVTec AD 2](https://www.mvtec.com/research-teaching/datasets/mvtec-ad-2)
+- [VisA](https://registry.opendata.aws/visa/)
 
 Example dataset root:
 
@@ -337,6 +342,7 @@ The established manifest-based workflow remains supported:
     --output-directory .\outputs\model-artifacts\mvtec-ad-capsule-320 `
     --input-size 320 `
     --top-fraction 0.01 `
+    --threshold-quantile 0.95 `
     --memory-fraction 1.0 `
     --sampling-seed 42
 ```
@@ -369,7 +375,44 @@ training_split.json
 
 `training_split.json` records the exact fitting and validation membership using paths relative to the supplied image directory. The model artifact remains category-specific: unrelated product categories should use separate artifacts.
 
+`--threshold-quantile` selects the normal-validation score quantile used as the anomaly threshold. A value of `1.0` reproduces maximum-normal threshold selection. Lower values generally increase anomaly recall while also increasing the risk of false positives. Threshold calibration must be validated for each category and operating context.
+
+New generalized exports use artifact schema version 2 and record `threshold_method` and `threshold_quantile`. The loader remains compatible with schema-version-1 artifacts by applying the former maximum-normal defaults.
+
 The current format is a versioned Python/PyTorch artifact, not a framework-neutral production package.
+
+## Evaluate an Exported Model Artifact
+
+The dataset-independent evaluator accepts a CSV manifest with the following columns:
+
+```csv
+image,group,is_anomalous
+relative/path/to/normal-image.jpg,normal,false
+relative/path/to/anomalous-image.jpg,anomaly,true
+```
+
+Image paths are resolved relative to `--dataset-root`. The evaluator loads the artifact once, scores all listed images, and reports score distributions, confusion-matrix counts, accuracy, precision, recall, specificity, F1 score, group-level anomaly rates, false positives, and false negatives.
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\evaluate_model_artifact.py `
+    --artifact .\outputs\model-artifacts\visa-candle-generalized-q95-320 `
+    --dataset-root C:\path\to\visa\extracted `
+    --manifest C:\path\to\visa\evaluation_manifest.csv
+```
+
+### VisA Candle Calibration Result
+
+Three artifacts with identical feature memories were compared using normal-validation quantiles of 1.00, 0.99, and 0.95. Their feature-memory files had identical SHA-256 hashes, so the measured classification differences resulted only from their thresholds.
+
+| Variant | Quantile | Threshold | Precision | Recall | Specificity | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| q100 | 1.00 | 3.373678 | 1.0000 | 0.3100 | 1.0000 | 0.4733 |
+| q99 | 0.99 | 3.001366 | 1.0000 | 0.5600 | 1.0000 | 0.7179 |
+| q95 | 0.95 | 2.763051 | 0.9324 | 0.6900 | 0.9500 | 0.7931 |
+
+q95 is the provisional calibration candidate for a review-oriented inspection workflow. It is not an independently validated final result because the official Candle test images were inspected while comparing the quantiles. Further tuning against those same images would introduce additional test-set feedback.
+
+See [VisA Candle Threshold Calibration](docs/experiments/visa-candle-threshold-calibration.md) for the complete experiment record.
 
 ## Predict One Image from the CLI
 
@@ -476,6 +519,7 @@ Dataset-dependent benchmarks, real service startup with a large artifact, and ar
 ## Documentation
 
 - [Architecture Overview](docs/ArchitectureOverview.md)
+- [VisA Candle Threshold Calibration](docs/experiments/visa-candle-threshold-calibration.md)
 - [Dataset Documentation](docs/DatasetDocumentation.md)
 - [Development Status](docs/DevelopmentStatus.md)
 - [Model Development Strategy](docs/ModelDevelopmentStrategy.md)
@@ -485,6 +529,7 @@ Dataset-dependent benchmarks, real service startup with a large artifact, and ar
 ## Known Limitations
 
 - current benchmark results are exploratory because test images were inspected during development;
+- the provisional VisA Candle q95 threshold was selected after comparing results on the official test split and therefore requires independent confirmation;
 - pixel-level localization metrics are not implemented;
 - exact nearest-neighbor search is computationally and memory intensive;
 - the current artifact uses PyTorch tensor serialization and is trusted local input;
@@ -499,12 +544,12 @@ Dataset-dependent benchmarks, real service startup with a large artifact, and ar
 
 ## Roadmap
 
-- evaluate the generalized directory-based training workflow on a non-MVTec image collection;
+- validate the fixed q95 threshold strategy on previously unused data or another suitable category;
 - add multi-artifact loading or model selection for categories such as Bottle and Capsule;
 - add backend-to-service integration coverage suitable for CI;
 - evaluate at least one MVTec AD category beyond Bottle and Capsule;
 - implement pixel-level localization metrics;
-- define an evaluation protocol that does not tune on inspected test data;
+- define a strict calibration and final-test protocol for future categories;
 - investigate principled feature-memory reduction and faster nearest-neighbor search;
 - complete portable artifact and 320 × 320 ONNX parity work;
 - implement the separate web client;
