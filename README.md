@@ -9,9 +9,9 @@
 
 Industrial Visual Anomaly Detection is an educational and portfolio-oriented computer-vision project for detecting unusual visual patterns in industrial inspection images and highlighting suspicious regions.
 
-The implemented Python MVP uses a frozen pretrained ResNet18 and a PatchCore-inspired feature-memory approach. It can validate datasets, create reproducible data splits, build category-specific anomaly models, evaluate them, generate heatmaps, export reusable artifacts, classify individual images on CPU, and expose a loaded artifact through an internal FastAPI inference service.
+The implemented Python MVP uses a frozen pretrained ResNet18 and a PatchCore-inspired feature-memory approach. It can discover normal PNG and JPEG images from external directories, create reproducible fitting and validation splits, build category-specific anomaly models, evaluate them, generate heatmaps, export reusable artifacts, classify individual images on CPU, and expose a loaded artifact through an internal FastAPI inference service.
 
-> **Current status:** The Python model-development, artifact export, local inference, and internal HTTP inference-service MVPs are implemented. Bottle and Capsule have been evaluated exploratorily, a reusable Capsule reference artifact can be exported, and 68 automated tests cover the main deterministic and service components. The internal prediction response now includes a threshold-normalized anomaly heatmap as a Base64-encoded PNG. End-to-end communication from the separate ASP.NET Core backend through the Python service to the model has been verified locally.
+> **Current status:** The Python model-development, generalized artifact export, local inference, and internal HTTP inference-service MVPs are implemented. Bottle and Capsule have been evaluated exploratorily. The established Capsule artifact remains byte-for-byte reproducible through the refactored exporter, and a Bottle artifact has been trained directly from a normal-image directory without an MVTec-specific manifest. The generalized export records its deterministic fitting and validation split in `training_split.json`. A total of 92 automated tests cover the main deterministic, training, artifact, inference, and service components.
 
 ## What the Model Does
 
@@ -31,6 +31,10 @@ The current output is `normal` or `anomalous`. It does not classify the exact de
 ## Implemented Capabilities
 
 - validation tooling for MVTec AD, MVTec LOCO AD, and MVTec AD 2;
+- recursive discovery of normal PNG and JPEG images from external directories;
+- deterministic automatic fitting and validation splits for external image collections;
+- portable `training_split.json` records with relative image paths;
+- dataset-independent model training and artifact-export orchestration;
 - optional schema-versioned JSON validation reports;
 - deterministic fitting and validation manifests;
 - configurable deterministic image preprocessing;
@@ -141,6 +145,7 @@ industrial-visual-anomaly-detection-model/
 ├── scripts/
 │   ├── create_mvtec_ad_split.py
 │   ├── evaluate_mvtec_ad_category.py
+│   ├── export_image_directory_model.py
 │   ├── export_mvtec_ad_model.py
 │   ├── inspect_preprocessing.py
 │   ├── predict_image.py
@@ -163,6 +168,7 @@ industrial-visual-anomaly-detection-model/
 │       ├── evaluation.py
 │       ├── inference.py
 │       ├── preprocessing.py
+│       ├── training.py
 │       └── visualization.py
 ├── tests/
 ├── COMMITS.md
@@ -193,6 +199,7 @@ Related application stack:
 
 - separate ASP.NET Core backend with verified Python-service integration;
 - separate WPF desktop client with a verified image-analysis workflow;
+- separate [Docker Compose stack](https://github.com/rluetken-dev/industrial-visual-anomaly-detection-stack) for reproducible local backend and inference-service orchestration;
 - planned separate web client;
 - versioned HTTP inference boundaries between the clients, backend, and Python service.
 
@@ -245,7 +252,7 @@ Activation is optional. All commands below call the environment interpreter expl
     -v
 ```
 
-The current suite contains 68 tests. The GitHub Actions workflow runs equivalent checks with Python 3.12 on Ubuntu for every push and pull request targeting `main`.
+The current suite contains 92 tests. The GitHub Actions workflow runs equivalent checks with Python 3.12 on Ubuntu for every push and pull request targeting `main`.
 
 ## Dataset Setup
 
@@ -319,6 +326,10 @@ Exact nearest-neighbor evaluation on CPU can take several minutes, especially wi
 
 ## Export a Model Artifact
 
+### Export from an MVTec AD Manifest
+
+The established manifest-based workflow remains supported:
+
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\export_mvtec_ad_model.py `
     --dataset-root C:\path\to\mvtec-ad `
@@ -330,12 +341,33 @@ Exact nearest-neighbor evaluation on CPU can take several minutes, especially wi
     --sampling-seed 42
 ```
 
-The artifact contains:
+### Export from a Normal-Image Directory
+
+The generalized workflow accepts any directory containing normal PNG or JPEG images. Subdirectories are searched recursively.
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\export_image_directory_model.py `
+    --image-directory C:\path\to\normal-images `
+    --dataset custom-dataset `
+    --category bottle `
+    --output-directory .\outputs\model-artifacts\custom-bottle-320 `
+    --validation-fraction 0.2 `
+    --split-seed 42 `
+    --input-size 320 `
+    --top-fraction 0.01 `
+    --memory-fraction 1.0 `
+    --sampling-seed 42
+```
+
+The generalized exporter discovers the images, creates deterministic fitting and validation partitions, builds the feature memory, derives the threshold from held-out normal images, and writes:
 
 ```text
 metadata.json
 feature_memory.pt
+training_split.json
 ```
+
+`training_split.json` records the exact fitting and validation membership using paths relative to the supplied image directory. The model artifact remains category-specific: unrelated product categories should use separate artifacts.
 
 The current format is a versioned Python/PyTorch artifact, not a framework-neutral production package.
 
@@ -459,7 +491,7 @@ Dataset-dependent benchmarks, real service startup with a large artifact, and ar
 - artifact metadata does not yet fully describe every preprocessing operation;
 - one category-specific artifact must not be assumed to generalize to another category;
 - the inference service currently serializes access to its shared model runtime;
-- service authentication, containerization, production health checks, and deployment hardening are not implemented;
+- local container orchestration is available through the separate stack repository, but service authentication and production deployment hardening are not implemented;
 - the separate ASP.NET Core backend and WPF desktop client provide verified MVP integration but are not production deployments;
 - the web client is not implemented;
 - Base64-encoded heatmaps increase the size of internal prediction responses;
@@ -467,7 +499,7 @@ Dataset-dependent benchmarks, real service startup with a large artifact, and ar
 
 ## Roadmap
 
-- propagate service-generated heatmaps through the ASP.NET Core backend to the WPF desktop client;
+- evaluate the generalized directory-based training workflow on a non-MVTec image collection;
 - add multi-artifact loading or model selection for categories such as Bottle and Capsule;
 - add backend-to-service integration coverage suitable for CI;
 - evaluate at least one MVTec AD category beyond Bottle and Capsule;

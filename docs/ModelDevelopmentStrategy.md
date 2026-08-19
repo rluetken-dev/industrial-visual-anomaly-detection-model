@@ -4,348 +4,278 @@
 
 This document defines the strategy for developing, fitting, validating, evaluating, comparing, exporting, serving, and evolving anomaly-detection models for the Industrial Visual Anomaly Detection project.
 
-It is intended to prevent:
+The strategy is designed to prevent:
 
 - test-set leakage;
-- irreproducible experiments;
+- accidental mixing of unrelated product categories;
+- irreproducible data partitions;
+- silent preprocessing or scoring changes;
 - misleading benchmark claims;
-- undocumented model changes;
 - incompatible model artifacts;
-- divergence between offline and service inference;
-- premature optimization;
-- confusion between benchmark performance and production readiness.
-
-The first end-to-end model-development cycle is complete. Bottle established the initial pipeline, and Capsule tested generalization, input resolution, memory sampling, artifact export, reusable inference, and integration through a persistent Python service and ASP.NET Core backend.
+- optimization without measurable evidence.
 
 ## Strategy Status
 
-This document distinguishes between:
+The first end-to-end model-development and application-integration cycles are complete. Bottle established the initial pipeline, Capsule tested category generalization and artifact-based inference, and the generalized directory exporter proved that fitting no longer depends on an MVTec-specific manifest.
 
-- **Implemented and verified** – demonstrated through executable code, automated tests, or recorded experiments;
-- **Selected reference strategy** – used by the current reference artifact and service;
-- **Exploratory result** – useful development evidence that is not an untouched blind benchmark;
-- **Open decision** – requires further implementation or evaluation;
-- **Deferred work** – excluded from the current development cycle.
+The current strategy supports two fitting entry points:
+
+1. a versioned manifest for controlled dataset experiments;
+2. an external directory containing normal PNG or JPEG images.
+
+Both entry points delegate to the same dataset-independent training implementation and produce category-specific artifacts.
 
 ## Implemented and Verified Capabilities
 
-- CPU-based PyTorch and TorchVision execution;
-- pretrained frozen ResNet18 feature extraction;
-- `layer2` and `layer3` feature fusion;
-- configurable square preprocessing at 224 x 224 and 320 x 320;
-- deterministic category-specific split manifests;
-- local patch embeddings with dimension 384;
-- complete normal feature-memory construction;
-- exact chunked nearest-neighbor distances;
-- maximum and top-fraction patch-score aggregation;
+- validation of MVTec AD, MVTec LOCO AD, and MVTec AD 2;
+- recursive discovery of external PNG and JPEG images;
+- deterministic automatic fitting and validation splits;
+- portable split records using relative paths;
+- deterministic preprocessing at configurable square sizes;
+- frozen pretrained ResNet18 feature extraction;
+- multi-scale `layer2` and `layer3` patch embeddings;
+- complete and optionally sampled feature memories;
+- exact chunked nearest-neighbor scoring;
+- top-fraction image-score aggregation;
 - normal-validation threshold selection;
-- grouped image-level evaluation;
-- anomaly heatmap generation;
-- deterministic random feature-memory sampling;
-- typed model-artifact metadata;
-- artifact writing, validation, and loading;
-- file-path and binary-stream inference;
-- prediction CLI;
-- persistent FastAPI inference service;
-- startup-time artifact and feature-extractor initialization;
-- internal liveness and multipart prediction endpoints;
-- threshold-normalized RGB heatmaps encoded as Base64 PNG data in prediction responses;
-- ASP.NET Core integration through HTTP;
-- manually verified path/stream parity and end-to-end inference;
-- provisional ONNX export and earlier PyTorch/ONNX numerical parity;
-- 68 passing automated Python tests.
+- image-level evaluation and grouped error reporting;
+- anomaly heatmaps;
+- typed artifact writing, validation, loading, and inference;
+- path and stream inference parity;
+- persistent FastAPI inference runtime;
+- backend, desktop heatmap, and Docker-stack integration;
+- 92 passing automated Python tests.
 
-These capabilities establish a functioning reference implementation and application integration boundary. They do not establish production readiness, regulatory validation, real-world transfer, deployment hardening, or localization accuracy.
+These capabilities establish a functioning reference implementation. They do not establish production readiness, regulatory validation, real-world transfer, or quantitative localization accuracy.
 
-## Reference Model Configuration
+## Core Development Principles
 
-| Setting | Selected value |
-| --- | --- |
-| Dataset | MVTec AD |
-| Category | `capsule` |
-| Learning mode | Normal-only unsupervised anomaly detection |
-| Fitting images | 175 |
-| Normal validation images | 44 |
-| Test images | 132 |
-| Random seed | 42 |
-| Backbone | Frozen ResNet18 with default TorchVision weights |
-| Feature layers | `layer2` and `layer3` |
-| Input size | 320 x 320 |
-| Preprocessing | RGB, direct bilinear resize with antialiasing, tensor conversion, ImageNet normalization |
-| Embedding dimension | 384 |
-| Patch grid | 40 x 40 |
-| Feature-memory entries | 280,000 |
-| Feature-memory fraction | 1.0 |
-| Distance search | Exact chunked nearest neighbor |
-| Image aggregation | Mean of highest 1% of patch scores |
-| Threshold | Maximum normal-validation score |
-| Stored threshold | 2.501821517944336 |
-| Inference runtime | Python/PyTorch |
-| Service boundary | Internal FastAPI HTTP service |
-
-The split manifest is:
-
-```text
-configs/splits/mvtec-ad-capsule-seed-42.json
-```
-
-The model detects deviation from normal appearance and returns a spatial patch-score map. It does not classify the exact defect type.
-
-## Model Development Principles
-
-1. Verify dataset source, license, structure, and integrity before use.
-2. Use only normal fitting images to construct the normal reference memory.
-3. Keep threshold selection independent from official test labels.
-4. Preserve preprocessing and scoring semantics across fitting, CLI, and service inference.
-5. Begin with explicit, testable mechanics before advanced optimization.
-6. Record every meaningful model change as a reproducible experiment.
-7. Separate image-level detection from pixel-level localization claims.
-8. Review false positives and false negatives in addition to aggregate metrics.
-9. Treat runtime and memory consumption as model-quality constraints.
-10. Keep artifacts inseparable from preprocessing, backbone, dimensions, aggregation, and threshold metadata.
-11. Mark results as exploratory when test data influenced later decisions.
-12. Keep public API concerns outside the model implementation.
-13. Verify offline and service inference against the same artifact.
-14. Never present benchmark results as evidence of production suitability.
+1. Fit only on defect-free images.
+2. Keep one artifact scoped to one product category or visually coherent product family.
+3. Never mix unrelated categories into one feature memory merely to simplify deployment.
+4. Use only normal fitting images to construct the feature memory.
+5. Use held-out normal images to select the threshold.
+6. Keep final test images and anomaly labels out of fitting and threshold selection.
+7. Preserve preprocessing and scoring semantics across fitting, CLI, service, backend, and clients.
+8. Record every reproducibility-critical choice.
+9. Prefer explicit, testable components over hidden framework behavior.
+10. Change one experimental variable at a time whenever practical.
+11. Compare optimizations against a complete-memory reference.
+12. Treat heatmaps as explanation aids until localization metrics are implemented.
+13. Mark results as exploratory when inspected test data influenced development.
+14. Reject unsupported or ambiguous input early.
+15. Keep generated datasets and artifacts outside Git.
 
 ## Evidence-Gated Development Process
 
 ```text
-dataset qualification                         completed
-        |
-        v
-data validation and deterministic manifests   completed
-        |
-        v
-preprocessing verification                    completed
-        |
-        v
-reusable feature extraction                   completed
-        |
-        v
-complete feature memory                       completed
-        |
-        v
-exact anomaly scoring                         completed
-        |
-        v
-normal-validation threshold                   completed
-        |
-        v
-Bottle baseline evaluation                    completed
-        |
-        v
-Capsule generalization and resolution study   completed
-        |
-        v
-memory-sampling trade-off study               completed
-        |
-        v
-artifact export and CLI inference             completed
-        |
-        v
-stream inference and service integration      completed
-        |
-        v
-ASP.NET Core end-to-end request               completed
-        |
-        v
-service hardening and readiness               pending
-        |
-        v
-pixel-level evaluation                        pending
-        |
-        v
-deployment packaging                          pending
+problem and category definition
+-> source-data qualification
+-> normal-image discovery
+-> deterministic partitioning
+-> preprocessing verification
+-> feature-extractor verification
+-> feature-memory fitting
+-> normal-validation threshold
+-> optional test evaluation
+-> qualitative heatmap review
+-> artifact export
+-> offline inference verification
+-> service verification
+-> backend and client verification
+-> release decision
 ```
 
-## Dataset Qualification Strategy
+Each stage should produce evidence before the next stage becomes authoritative.
 
-MVTec AD, MVTec LOCO AD, and MVTec AD 2 have been downloaded, checksummed, extracted, inspected, and validated. Qualification records source, attribution, license, archive checksum, structure, inventories, image properties, masks, and suitability for normal-only fitting.
+## External Dataset Contract
 
-MVTec AD remains the active development dataset. MVTec LOCO AD and MVTec AD 2 are qualified for later evaluation but are not part of the current fitted reference artifact.
+### Minimum Input
 
-Datasets and derived reports are stored outside Git. Public code must not depend on machine-specific absolute paths.
+The generalized exporter requires one directory containing normal images. It searches recursively for:
+
+- `.png`;
+- `.jpg`;
+- `.jpeg`.
+
+Suffix matching is case-insensitive. Unsupported files are ignored. The source directory must exist and contain at least two unique supported images so both fitting and validation remain non-empty.
+
+Example:
+
+```text
+normal-images/
+├── product-001.png
+├── product-002.png
+└── optional-subdirectory/
+    └── product-003.jpg
+```
+
+The directory may come from MVTec, a camera export, a manually curated dataset, or another source. The general model code must not infer dataset-specific semantics from folder names.
+
+### Recommended Input Quality
+
+Normal fitting data should:
+
+- represent the intended camera, optics, lighting, background, pose, and product variation;
+- exclude known defects and unreadable files;
+- avoid duplicates or near-duplicate bursts dominating the memory;
+- cover acceptable manufacturing variation;
+- be reviewed for accidental anomalies before fitting;
+- be legally usable for the intended purpose.
+
+The implementation technically accepts two images, but that is only a structural minimum. A meaningful minimum image count remains category-dependent and must be established through evaluation.
+
+## Category Strategy
+
+One artifact represents one category. Bottle, Capsule, and future product categories require separate artifacts unless evidence demonstrates that a shared category definition is coherent.
+
+Category identity is stored in artifact metadata. Runtime model selection must eventually be explicit through configuration, request context, or a controlled routing layer. The current inference service loads one configured artifact at startup.
 
 ## Data Partition Strategy
 
-Versioned manifests define fitting and normal-validation membership using relative paths and seed `42`.
+### Automatic External-Directory Split
 
-| Category | Fitting | Normal validation | Official test |
-| --- | ---: | ---: | ---: |
-| Bottle | 167 | 42 | 83 |
-| Capsule | 175 | 44 | 132 |
+The generalized workflow:
 
-Partition roles are:
+1. discovers supported images in deterministic sorted order;
+2. shuffles them with an explicit split seed;
+3. assigns the requested fraction to normal validation;
+4. keeps fitting and validation non-empty;
+5. sorts both output partitions;
+6. verifies complete coverage and no overlap;
+7. records exact membership in `training_split.json`.
 
-- **Fitting:** build the normal feature memory;
-- **Normal validation:** analyze normal scores and choose the threshold;
-- **Official test:** report detection and grouped error behavior;
-- **Ground-truth masks:** evaluate localization when pixel-level metrics are implemented.
+The current defaults are:
 
-Test labels must not construct memory or determine the threshold. Because Bottle and Capsule results were inspected and informed later development, current comparisons are exploratory rather than untouched final benchmarks.
+| Parameter | Default |
+| --- | ---: |
+| Validation fraction | 0.2 |
+| Split seed | 42 |
+
+`training_split.json` stores relative paths rather than machine-specific absolute paths.
+
+### Versioned Manifest Split
+
+Controlled MVTec experiments may continue to use committed manifests:
+
+```text
+configs/splits/mvtec-ad-bottle-seed-42.json
+configs/splits/mvtec-ad-capsule-seed-42.json
+```
+
+Manifest loading validates counts, duplicates, overlap, relative path safety, and dataset-root resolution. Both entry points ultimately pass explicit fitting and validation paths to the same training function.
+
+### Partition Roles
+
+- **Fitting:** construct the normal feature memory.
+- **Normal validation:** inspect the normal-score distribution and derive the threshold.
+- **Normal test:** estimate false-positive behavior on unseen normal data.
+- **Anomalous test:** estimate detection behavior and failure modes.
+- **Masks:** evaluate localization only; never influence fitting or image-level threshold selection.
 
 ## Preprocessing Strategy
 
-The deterministic preprocessing is:
+The selected reference preprocessing is:
 
 ```text
-decode image
--> convert to RGB
+image decode
+-> RGB conversion
 -> direct resize to configured square input
--> convert to torch.float32 tensor
--> normalize with ImageNet mean and standard deviation
+-> tensor conversion
+-> ImageNet normalization
 ```
 
-Bottle uses 224 x 224. Capsule uses 320 x 320 because higher resolution materially improved sensitivity to small defects.
+Direct resizing was selected because center cropping removed relevant Bottle boundaries. Current verified resolutions are 224 x 224 and 320 x 320.
 
-The default TorchVision center-crop path was rejected for Bottle because it removed part of the object boundary. Direct resizing introduces no aspect-ratio distortion for the inspected square Bottle and Capsule images.
+Before fitting a substantially non-square category, compare direct resizing against padding or another explicit aspect-ratio policy. Do not silently change preprocessing for an existing artifact lineage.
 
-Non-square categories require a separate documented choice between direct resizing, aspect-ratio preservation, and padding.
-
-No random augmentation belongs to the current reference model. Future augmentation must preserve the meaning of normal data, use explicit seeds, and retain deterministic evaluation preprocessing.
+Future artifact schemas should explicitly record interpolation, antialiasing, color conversion, normalization mean and standard deviation, and pretrained weight identity.
 
 ## Feature Extraction Strategy
 
-The frozen ResNet18 backbone supplies `layer2` and `layer3` features. `layer3` is bilinearly resized to the spatial resolution of `layer2`, concatenated along the channel dimension, and rearranged into 384-dimensional patch embeddings.
+The reference extractor is a pretrained ResNet18 with gradients disabled and evaluation mode enabled.
 
-At 224 x 224:
+`layer2` and `layer3` features are fused:
 
-```text
-layer2:          (1, 128, 28, 28)
-layer3:          (1, 256, 14, 14)
-patch embeddings:      (784, 384)
-```
+1. capture both intermediate feature maps;
+2. resize `layer3` spatially to the `layer2` grid;
+3. concatenate channels;
+4. flatten spatial positions into 384-dimensional patch embeddings.
 
-At 320 x 320:
+| Input | Patch grid | Embeddings per image |
+| --- | --- | ---: |
+| 224 x 224 | 28 x 28 | 784 |
+| 320 x 320 | 40 x 40 | 1,600 |
 
-```text
-layer2:          (1, 128, 40, 40)
-layer3:          (1, 256, 20, 20)
-patch embeddings:     (1600, 384)
-```
-
-Backbone replacement or fine-tuning is deferred until data, preprocessing, scoring, threshold behavior, runtime, and failure cases have been examined first.
+Fine-tuning is deferred. A backbone change requires a new artifact lineage and renewed evaluation.
 
 ## Feature Memory Strategy
 
 The feature memory concatenates embeddings from all normal fitting images in deterministic loader order.
 
-It is bound to:
+The complete feature memory remains the reference because deterministic random sampling reduced Capsule recall materially:
 
-- dataset and category;
-- split manifest;
-- input and preprocessing configuration;
-- backbone and pretrained weights;
-- selected feature layers;
-- embedding construction and dimension;
-- sampling or coreset configuration;
-- framework and artifact versions.
+| Memory | Entries | Recall | F1 | FN |
+| --- | ---: | ---: | ---: | ---: |
+| 100% | 280,000 | 0.9541 | 0.9674 | 5 |
+| 75% | 210,000 | 0.8991 | 0.9423 | 11 |
+| 50% | 140,000 | 0.8624 | 0.9216 | 15 |
+| 25% | 70,000 | 0.6330 | 0.7753 | 40 |
 
-Incompatible feature memories must never be combined.
+Future reduction should use a coverage-preserving coreset or another method evaluated against complete memory.
 
-The Capsule reference memory contains:
+## Nearest-Neighbor and Scoring Strategy
+
+Each query patch is compared with the feature memory using exact Euclidean distance. Memory entries are processed in configurable chunks to bound temporary allocation.
+
+Supported image-level aggregation includes maximum patch score and top-fraction mean. The selected reference rule is:
 
 ```text
-175 x 1600 = 280000 embeddings
-shape: (280000, 384)
-dtype: float32
-size: approximately 410.16 MiB
+image score = mean(highest-scoring 1% of patches)
 ```
 
-The current serialization uses `torch.save` and is treated as trusted deployment input. A framework-neutral format is optional future portability work; it is not required by the implemented HTTP integration because Python loads the artifact.
-
-## Memory-Reduction Strategy
-
-Complete memory is established first as the quality reference. Optimization is evaluated against that fixed configuration.
-
-| Fraction | Entries | Validation + test scoring | Recall | F1 | FN |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 100% | 280,000 | 225.06 s | 0.9541 | 0.9674 | 5 |
-| 75% | 210,000 | 184.33 s | 0.8991 | 0.9423 | 11 |
-| 50% | 140,000 | 120.36 s | 0.8624 | 0.9216 | 15 |
-| 25% | 70,000 | 64.15 s | 0.6330 | 0.7753 | 40 |
-
-Random sampling reduces runtime but loses too much feature coverage. The reference artifact therefore retains 100% of memory. Future reduction should use a coverage-preserving coreset or another method evaluated against the complete-memory reference.
-
-## Nearest-Neighbor Strategy
-
-The implementation uses exact Euclidean nearest-neighbor distance. Reference memory is processed in configurable chunks to control temporary memory without changing results.
-
-Recorded scoring configuration must include:
-
-- distance definition;
-- query and memory chunking;
-- tensor data type;
-- patch-grid dimensions;
-- memory size;
-- runtime environment.
-
-Approximate search may be considered if it preserves an explicit quality target and is compared with fixed exact-search results.
-
-## Image-Level Scoring Strategy
-
-Supported aggregation methods are:
-
-- maximum patch distance;
-- mean of the highest configurable fraction of patch distances.
-
-Top-one-percent mean is selected because it was more robust than one extreme patch and performed strongly in the explored Bottle and Capsule evaluations.
-
-Aggregation parameters belong to artifact metadata and must not change silently during service inference.
+Aggregation parameters belong to artifact metadata and must not change during inference.
 
 ## Threshold Strategy
 
-The reference threshold is the maximum image score among normal validation images:
+The current threshold is:
 
 ```text
-threshold = max(normal validation scores)
+threshold = maximum(normal validation image scores)
 ```
 
-Only scores strictly greater than the threshold are anomalous.
+Only scores strictly above the threshold are anomalous.
 
-This constrains false positives on the validation-normal distribution but cannot directly optimize anomaly recall. Alternative thresholds must be selected without final test labels from the experiment being reported.
-
-The Capsule artifact stores `2.501821517944336`.
-
-## Anomaly-Map Strategy
-
-Nearest-neighbor distances are reconstructed as a patch grid. Visualization can resize, normalize, colorize, and blend the map with the image.
-
-Fixed threshold-based normalization is preferred for comparison across images. Heatmap colors are presentation data and must not replace raw scores.
-
-For internal HTTP inference, the patch-score grid is threshold-normalized, resized to the configured model input dimensions, colorized as RGB, encoded as PNG, and transported as Base64 text. This representation is an explanation aid and remains separate from the raw anomaly score and decision.
-
-Quantitative localization metrics are not implemented. Any smoothing, normalization, or pixel threshold that affects metrics must be recorded as experiment configuration.
+This rule constrains false positives on the observed normal-validation distribution but does not directly optimize anomaly recall. It can be unstable for very small or unrepresentative validation sets. Alternative calibration must be defined without tuning on the final reported test labels.
 
 ## Evaluation Strategy
 
 ### Image-Level Evaluation
 
-Implemented evaluation reports:
+For labeled test data, report:
 
-- normal and per-group score distributions;
 - true positives, true negatives, false positives, and false negatives;
 - accuracy, precision, recall, and F1;
-- per-group detection rates;
-- false-negative paths;
-- feature-memory construction and scoring times.
+- score distributions by group;
+- per-defect detection rates;
+- inference timings;
+- concrete false-positive and false-negative examples.
 
-AUROC and Average Precision remain useful future additions because they are threshold independent.
+### Generalized Artifact Evaluation
+
+The directory exporter proves fitting independence but does not yet provide a general labeled-test evaluator. The next evaluation component should accept optional normal and anomalous test directories and score a previously exported artifact without refitting it.
 
 ### Pixel-Level Evaluation
 
-Future work should add pixel-level AUROC, Average Precision, and justified threshold-dependent metrics. Mask alignment and post-processing must be verified first.
+Future localization evaluation should include pixel AUROC, average precision, thresholded segmentation metrics, and PRO-style overlap where appropriate.
 
-### Qualitative Evaluation
+### Qualitative Review
 
-Visual analysis should include representative normal images, false positives, true anomalies, false negatives, small defects, boundary defects, and heatmaps. Examples must not be selected in a way that misrepresents overall behavior.
+Review representative normal images, true anomalies, false positives, false negatives, subtle defects, boundaries, and heatmaps. Do not select only visually convincing examples.
 
-Dataset license restrictions must be checked before publishing images, masks, or overlays.
+## Verified Reference Evidence
 
-## Recorded Exploratory Results
-
-### Bottle at 224 x 224
+### Exploratory Bottle Baseline at 224 x 224
 
 | Aggregation | Accuracy | Precision | Recall | F1 | FP | FN |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -353,254 +283,215 @@ Dataset license restrictions must be checked before publishing images, masks, or
 | Top 1% mean | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0 | 0 |
 | Top 5% mean | 0.9759 | 0.9692 | 1.0000 | 0.9844 | 2 | 0 |
 
-### Capsule Reference at 320 x 320
+### Exploratory Capsule Reference at 320 x 320
 
-| Metric | Value |
+| Metric | Result |
 | --- | ---: |
-| True positives | 104 |
-| True negatives | 21 |
-| False positives | 2 |
-| False negatives | 5 |
 | Accuracy | 0.9470 |
 | Precision | 0.9811 |
 | Recall | 0.9541 |
 | F1 | 0.9674 |
+| False positives | 2 |
+| False negatives | 5 |
 
-These results document development evidence. They are not untouched blind benchmark claims because test images and results were inspected during iterative development.
+### Generalized Bottle Export at 320 x 320
+
+| Property | Result |
+| --- | ---: |
+| Source normal images | 209 |
+| Fitting images | 167 |
+| Validation images | 42 |
+| Feature-memory entries | 267,200 |
+| Feature-memory size | 391.41 MiB |
+| Threshold | 3.2163138389587402 |
+
+Smoke predictions classified Bottle `test/good/000.png` as normal and `test/broken_large/000.png` as anomalous. This verifies artifact compatibility, not full generalized evaluation.
+
+The exploratory MVTec results are development evidence rather than untouched benchmark claims.
 
 ## Experiment Management
 
 Every meaningful experiment should record:
 
-- experiment identifier, timestamp, and Git revision;
-- Python and dependency versions;
-- dataset, category, archive reference, split manifest, and seed;
-- backbone, pretrained weights, feature layers, and input size;
-- preprocessing parameters;
-- memory fraction or coreset configuration;
-- distance and chunking configuration;
-- aggregation method;
-- threshold method and value;
-- metrics and grouped errors;
-- runtime and memory measurements;
-- output and artifact locations;
-- warnings and known limitations.
+- dataset identity and legal provenance;
+- category;
+- source image location or dataset version;
+- fitting, validation, and test roles;
+- split seed and validation fraction;
+- exact partition membership;
+- preprocessing and input size;
+- backbone and pretrained weights;
+- feature layers and embedding dimension;
+- memory fraction and sampling seed;
+- distance and chunk configuration;
+- aggregation and threshold method;
+- metrics, timings, and failure examples;
+- output artifact location and checksum;
+- relevant source revision and dependency versions.
 
-Human-readable summaries should be backed by machine-readable records. Machine-specific paths must not enter released artifacts.
+Machine-specific absolute paths must not enter released artifact provenance.
 
 ## Reproducibility Strategy
 
-Reproducibility requires:
+Reproducibility depends on:
 
-- pinned direct dependencies;
-- recorded Python version;
-- deterministic file ordering and manifests;
-- explicit random seeds;
-- explicit preprocessing and model identifiers;
+- deterministic image discovery;
+- explicit split and sampling seeds;
+- recorded partition membership;
+- pinned dependencies;
+- versioned source and schemas;
+- deterministic preprocessing and loader order;
 - isolated fitting, validation, and test roles;
-- versioned experiment and artifact schemas;
 - artifact checksums;
-- clean-environment reconstruction tests.
+- clean-environment reconstruction.
 
-The repository records Python 3.12.10, pinned dependencies, Bottle and Capsule manifests, sampling seeds, and typed artifact metadata. Complete experiment reports and checksums remain pending.
+The generalized exporter now records partition membership. Complete experiment reports, embedded software provenance, and artifact checksums remain future improvements.
 
 ## Artifact Strategy
 
-The current Python artifact contains:
+The core artifact contains:
 
 ```text
-metadata.json
-feature_memory.pt
+model-artifact/
+  metadata.json
+  feature_memory.pt
 ```
 
-Metadata includes dataset, category, backbone, input size, patch-grid size, embedding dimension, aggregation, top fraction, threshold, memory fraction, seed, and entry count.
+The generalized exporter additionally creates:
 
-The writer and loader validate tensor structure and metadata dimensions. The current format supports trusted Python inference and the implemented service.
+```text
+  training_split.json
+```
 
-Future artifact evolution may add full preprocessing metadata, pretrained-weight identity, checksums, evaluation summaries, dependency versions, and license notices. ONNX and framework-neutral memory storage remain optional portability improvements.
+Metadata records schema, dataset, category, backbone, input size, patch grid, embedding dimension, aggregation, threshold, memory fraction, sampling seed, and entry count.
+
+The split sidecar records seed, ratios, counts, and exact relative path membership. The current `torch.save` tensor format is trusted deployment input. Framework-neutral storage remains optional future portability work.
+
+The refactored MVTec exporter reproduced the established Capsule feature memory byte-for-byte, with SHA-256:
+
+```text
+51DE3F2B4FEF804E9E95900597E738E86F7044A669D2739956CBA0CC6DE65478
+```
 
 ## Offline and Service Inference Strategy
 
-`predict_image` provides path-based CLI inference. `predict_image_stream` provides binary-stream inference for HTTP uploads. Both use the same artifact, preprocessing, extractor, scoring, aggregation, and threshold logic.
+Path-based CLI inference and binary-stream inference share the same artifact, preprocessing, feature extractor, scoring, aggregation, and threshold logic.
 
-Manual parity verification for the same image produced identical score, threshold, and decision:
+The internal FastAPI service loads one configured artifact and extractor at startup and reuses them. Responses contain model ID, category, score, threshold, anomaly decision, and a threshold-normalized Base64 PNG heatmap.
 
-```text
-Path score:       1.848755
-Stream score:     1.848755
-Score difference: 0.000000000000
-Same threshold:   True
-Same decision:    True
-```
+The service remains internal. ASP.NET Core owns public upload validation, limits, Problem Details, trace identifiers, readiness, and stable client-neutral contracts. The WPF client calls only the backend.
 
-Future model changes must preserve this shared path and include regression coverage appropriate to the changed behavior.
+## Local Runtime and Deployment Strategy
 
-## Inference-Service Strategy
+CPU-only inference remains the compatibility baseline. Exact search against complete memory is practical for single images but expensive for category-wide evaluation.
 
-The internal FastAPI service is the selected model boundary. At startup it loads the configured artifact and creates the feature extractor once. Requests reuse an `InferenceRuntime` stored in application state.
+The separate Docker Compose stack builds version-pinned inference and backend images, mounts a selected artifact read-only, supplies service networking and health checks, and verifies the local end-to-end request. The WPF desktop client remains a native Windows application outside Docker.
 
-Current configuration:
-
-```text
-IVAD_MODEL_ARTIFACT
-IVAD_MEMORY_CHUNK_SIZE
-```
-
-Current endpoints:
-
-```text
-GET  /health/live
-POST /api/v1/predictions
-```
-
-The service response contains model ID, category, score, threshold, Boolean anomaly decision, and a nested threshold-normalized heatmap. The heatmap contract contains content type, width, height, and Base64-encoded PNG data. The artifact directory name currently supplies the model ID.
-
-Prediction execution is serialized with a process-local lock. This conservative baseline protects the shared runtime and bounds CPU and memory pressure. Parallel execution must not be enabled without measurement. Multiple service workers independently load the feature memory and multiply RAM use.
-
-The service is internal. ASP.NET Core owns public upload limits, client-facing validation, Problem Details, trace identifiers, and stable external contracts. Python rejects missing and unreadable image uploads; additional structured internal errors and broader defense-in-depth content policy remain open.
-
-## Backend Integration Strategy
-
-ASP.NET Core communicates with FastAPI over HTTP. This direction was selected instead of embedding Python in the .NET process or immediately reimplementing the full pipeline in .NET.
-
-Reasons include:
-
-- preservation of verified PyTorch behavior;
-- one persistent copy of the large model state per service process;
-- isolation of Python dependencies and failures;
-- a language-neutral boundary;
-- independent model and backend versioning;
-- reduced need for premature numerical parity work.
-
-A real Capsule request was verified through:
-
-```text
-ASP.NET Core POST /api/v1/analyses
--> FastAPI POST /api/v1/predictions
--> Python/PyTorch inference
--> ASP.NET Core response
-```
-
-The verified anomalous score was `4.992109298706055` against threshold `2.501821517944336`.
-
-ONNX or native .NET inference may be reconsidered only when a concrete portability, latency, packaging, or offline requirement justifies the additional implementation and parity work.
-
-## Local Hardware Strategy
-
-CPU execution remains required. Direct Capsule predictions took approximately 1.44–1.46 seconds on the current machine. The verified backend-to-service request reported approximately 1.8 seconds total processing time.
-
-Artifact loading and extractor creation are performed once at service startup. Full validation and test evaluation remain slower because many images are scored against complete memory.
-
-Hardware acceleration, indexing, smarter memory reduction, and concurrency changes remain optional optimizations that require measured quality and resource comparisons.
+Production authentication, network hardening, signed artifacts, monitoring, and scaled inference remain future work.
 
 ## Model Approval Gate
 
-A candidate may become a documented reference model when:
+A category artifact may become an internal reference only when:
 
-- dataset license and attribution are recorded;
-- validation and split isolation pass;
-- fitting and threshold rules are reproducible;
-- preprocessing is documented and reviewed;
-- image-level metrics and grouped errors are recorded;
-- runtime and memory are measured;
+- source data and category scope are documented;
+- normal images are reviewed and readable;
+- fitting and validation roles are reproducible;
+- preprocessing and feature extraction are verified;
+- memory and aggregation configuration are explicit;
+- threshold derivation is documented;
 - artifact export and loading succeed;
-- offline and service inference agree for fixed verification inputs;
-- known limitations and test-set exposure are disclosed.
-
-Pixel-level metrics are required before claiming evaluated localization quality, but not before using patch maps as qualitative explanation aids.
+- known normal and anomalous examples behave plausibly;
+- evaluation evidence and limitations are disclosed;
+- automated quality checks pass;
+- inference behavior matches the stored metadata.
 
 ## Public Release Gate
 
 A model artifact may be released publicly only when:
 
-- redistribution is permitted;
-- required notices and citations are included;
-- no datasets, private paths, credentials, or secrets are embedded;
-- artifact and experiment schemas are versioned;
-- checksums and compatibility checks pass;
+- dataset redistribution rights are confirmed;
+- source-code licensing is explicit;
+- artifact and provenance schemas are versioned;
+- checksums are published;
 - evaluation results link to the exact artifact;
-- a Model Card documents intended use, limitations, and prohibited claims;
-- the supported runtime and service versions are explicit.
+- preprocessing and dependency compatibility are documented;
+- limitations and intended use are documented in a Model Card;
+- no restricted dataset content is embedded unintentionally.
 
-Python/.NET numerical parity is required only if a future .NET runtime directly consumes model tensors. It is not required for the current HTTP integration, where Python remains authoritative.
-
-The Capsule artifact is local and does not yet satisfy this public release gate.
+Current local Capsule and Bottle artifacts do not yet satisfy this release gate.
 
 ## Failure Analysis Strategy
 
-When performance is insufficient:
+Analyze failures by separating:
 
-1. verify data integrity and partition isolation;
-2. verify preprocessing and mask alignment;
-3. inspect normal and anomalous score distributions;
-4. review false positives and false negatives;
-5. verify feature and anomaly-map geometry;
-6. inspect threshold behavior;
-7. measure feature-memory coverage and runtime;
-8. adjust aggregation or scoring;
-9. evaluate a coverage-preserving coreset or index;
-10. compare another backbone only after earlier causes are understood.
+- source-data contamination or insufficient normal coverage;
+- preprocessing or image-decoding errors;
+- pose, lighting, background, scale, or product drift;
+- feature-memory coverage gaps;
+- threshold calibration errors;
+- small or localized defects;
+- boundary and texture effects;
+- artifact incompatibility;
+- service configuration, timeout, transport, or contract failures.
 
-Service failures must additionally be separated into configuration, artifact loading, image decoding, model inference, timeout, transport, and response-contract failures.
+False negatives are the primary inspection risk, but false positives matter operationally and must also be reported.
 
 ## Deferred Model Work
 
-- all-category fitting;
+- automatic multi-category artifact selection;
+- all-category MVTec fitting;
 - MVTec LOCO AD fitting;
 - MVTec AD 2 private evaluation;
-- supervised defect classification;
+- non-square preprocessing policy;
+- principled coreset selection;
+- approximate nearest-neighbor search;
+- pixel-level benchmark metrics;
 - backbone fine-tuning;
-- autoencoder development;
 - continual learning and automated retraining;
-- distributed or multi-GPU training;
-- real-time camera and PLC integration;
-- production deployment optimization;
-- real pharmaceutical product validation;
-- regulatory validation;
-- automated production accept/reject decisions.
+- GPU optimization;
+- real industrial product validation;
+- production monitoring and drift handling;
+- regulatory validation.
 
 ## Completed Model-Development Milestones
 
-1. Environment and dependency verification.
-2. Dataset acquisition, checksums, extraction, and validation.
-3. Deterministic Bottle and Capsule manifests.
-4. Direct-resize preprocessing selection and configurable resolution.
-5. Reusable feature extraction and patch embeddings.
-6. Complete feature-memory creation.
-7. Exact chunked nearest-neighbor scoring.
-8. Configurable score aggregation and validation threshold.
-9. Bottle evaluation and heatmaps.
-10. Capsule generalization and resolution comparison.
-11. Deterministic memory-sampling trade-off evaluation.
-12. Local artifact schema, writer, loader, and tests.
-13. Export and verification of the 410.16 MiB Capsule artifact.
-14. Correct normal and anomalous CLI predictions.
-15. Binary-stream inference with verified path parity.
-16. Persistent FastAPI runtime and prediction endpoint.
-17. Successful ASP.NET Core-to-Python end-to-end prediction.
-18. Threshold-normalized 320 x 320 RGB heatmap generation in the internal prediction response.
+1. Dataset acquisition, checksums, extraction, and validation.
+2. Deterministic Bottle and Capsule manifests.
+3. Explicit preprocessing, feature extraction, embeddings, memory, scoring, and evaluation.
+4. Bottle and Capsule exploratory evaluation.
+5. Feature-memory sampling experiment.
+6. Heatmap generation and visualization.
+7. Typed artifact metadata, writer, loader, and inference.
+8. Persistent FastAPI runtime and heatmap response.
+9. ASP.NET Core, WPF desktop, and Docker-stack integration.
+10. General external PNG/JPEG discovery.
+11. Deterministic automatic fitting and validation split.
+12. Portable `training_split.json` generation.
+13. Dataset-independent training orchestration.
+14. Generalized 320 x 320 Bottle artifact export.
+15. Normal and anomalous Bottle smoke predictions.
+16. Byte-for-byte Capsule exporter compatibility verification.
+17. Ninety-two passing Python tests.
 
 ## Immediate Next Steps
 
-1. Propagate service-generated heatmaps through the ASP.NET Core backend to the WPF desktop client.
-2. Verify the complete heatmap workflow with representative normal and anomalous Capsule images.
-3. Add multi-artifact loading or explicit category selection for Bottle and Capsule.
-4. Add service readiness based on initialized runtime state.
-5. Define structured service errors and broader defense-in-depth content policy.
-6. Add focused inference and artifact-compatibility regression tests.
-7. Define timeout, cancellation, retry, and concurrency policies.
-8. Add structured service timing and failure logging.
-9. Implement pixel-level Capsule evaluation.
-10. Add artifact checksums and clean-environment reconstruction.
+1. Evaluate the generalized workflow on a genuinely non-MVTec normal-image collection.
+2. Define the supported external dataset contract and recommended image counts.
+3. Add general artifact evaluation against optional normal and anomalous test directories.
+4. Design explicit multi-artifact selection across service, backend, and clients.
+5. Add stronger artifact provenance, preprocessing metadata, and checksums.
+6. Investigate coverage-preserving memory reduction and faster search.
+7. Add fixed-fixture inference regression coverage where practical.
+8. Prepare a Model Card before considering public artifact distribution.
 
 ## Related Documentation
 
-- `DevelopmentStatus.md` records verified status and immediate progress.
-- `ArchitectureOverview.md` defines implemented and intended boundaries.
+- `ArchitectureOverview.md` describes system boundaries and runtime flow.
 - `DatasetDocumentation.md` records dataset sources, licenses, and validation.
-- `ProjectSpecification.md` defines functional and non-functional scope.
-- A future `ModelCard.md` will document a released evaluated artifact.
+- `DevelopmentStatus.md` records verified implementation progress.
+- `ProjectSpecification.md` defines scope and requirements.
+- a future `ModelCard.md` will document a released evaluated artifact.
 
 ## Last Updated
 
-This strategy reflects the verified project state and selected Capsule reference configuration as of 2026-08-17.
+2026-08-19

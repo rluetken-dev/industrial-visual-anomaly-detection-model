@@ -2,222 +2,170 @@
 
 ## Document Purpose
 
-This living document records verified implementation progress, experiment results, current decisions, open questions, and immediate next steps for the Industrial Visual Anomaly Detection project.
+This living document records verified implementation progress, experiment results, current decisions, open questions, and immediate next steps for the Industrial Visual Anomaly Detection model project.
 
 It distinguishes between automated verification, manually verified integration behavior, exploratory benchmark findings, and planned work.
 
 ## Current Phase
 
-The project has completed its first model-development, artifact-export, backend-integration, and WPF desktop-client cycles. The current phase extends the verified end-to-end workflow with anomaly-heatmap transport and prepares multi-category model selection.
+The project has completed its initial model-development, artifact-export, inference-service, backend-integration, WPF desktop-client, heatmap-visualization, and Docker Compose orchestration milestones.
+
+The current phase generalizes category-specific model fitting so that an artifact can be created directly from an external directory of normal PNG or JPEG images. The first generalized directory-based export was verified with MVTec AD Bottle images. Multi-artifact runtime selection and evaluation on a genuinely non-MVTec image collection remain future work.
 
 The implemented system can:
 
 - validate all three locally acquired MVTec datasets;
+- discover normal PNG and JPEG images recursively in external directories;
 - create deterministic fitting and validation partitions;
-- preprocess images at configurable square resolutions;
+- record generated partitions with portable relative paths in `training_split.json`;
 - extract frozen multi-scale ResNet18 features;
-- create local patch embeddings and a normal feature memory;
-- compute exact chunked nearest-neighbor distances;
-- produce patch-level and image-level anomaly scores;
-- derive a threshold only from normal validation images;
+- build category-specific normal feature memories;
+- calculate exact chunked nearest-neighbor anomaly scores;
+- derive thresholds only from held-out normal images;
 - evaluate complete MVTec AD category test partitions;
-- generate anomaly heatmaps;
-- export and reload fitted model artifacts;
-- classify images from filesystem paths or binary streams;
-- serve a loaded artifact through an internal FastAPI service;
-- return a threshold-normalized RGB heatmap as Base64-encoded PNG data;
-- receive public image-analysis requests through a separate ASP.NET Core backend;
-- execute a complete local request from the C# backend through Python to the model;
-- select, preview, and analyze images through a separate WPF desktop client.
+- export and reload versioned model artifacts;
+- classify images from paths or binary streams;
+- return decisions and threshold-normalized PNG heatmaps through FastAPI;
+- serve a public client-neutral API through ASP.NET Core;
+- display interactive heatmap overlays through a WPF desktop client;
+- run the backend and inference service through Docker Compose.
 
-The current reference artifact is the MVTec AD Capsule model using a 320 x 320 input, complete feature memory, and top-one-percent patch-score aggregation.
+The web client, pixel-level localization metrics, production deployment hardening, multi-category runtime selection, and public artifact distribution remain future work.
 
-The web client, pixel-level localization metrics, production deployment, multi-category runtime selection, and public artifact distribution remain future work.
+## Model Approach
 
-## Project Vision
+The current PatchCore-inspired pipeline is:
 
-The project is intended to become an industrial visual anomaly-detection system that:
+```text
+normal source images
+-> recursive image discovery
+-> deterministic fitting and validation split
+-> direct square resize and ImageNet normalization
+-> frozen pretrained ResNet18
+-> layer2 and layer3 feature maps
+-> 384-dimensional multi-scale patch embeddings
+-> normal feature memory
+-> exact chunked nearest-neighbor search
+-> patch anomaly scores
+-> top-fraction image-score aggregation
+-> normal-validation-derived threshold
+-> versioned artifact
+-> normal/anomalous decision and anomaly heatmap
+```
 
-- learns normal product appearance from defect-free images;
-- detects deviations from learned normal appearance;
-- localizes suspicious regions through anomaly maps;
-- evaluates detection and localization quality reproducibly;
-- packages fitted model state as versioned artifacts;
-- executes model inference in a persistent Python service;
-- exposes a stable client-neutral API through ASP.NET Core;
-- supports the implemented WPF desktop client and can later support a web client.
-
-The current implementation performs unsupervised anomaly detection. It decides whether an image is normal or anomalous and produces a patch-level anomaly map. It does not classify the precise defect type.
+The fitting process does not fine-tune ResNet18. It constructs the feature memory from normal fitting images and derives the decision threshold from held-out normal validation images. One artifact represents one product category and must not be assumed to generalize to unrelated categories.
 
 ## Verified Development Environment
 
 | Component | Verified value |
 | --- | --- |
-| Operating system | Windows |
+| Operating system | Windows 11 |
 | Python | 3.12.10 |
-| Virtual environment | `.venv` |
 | PyTorch | 2.13.0+cpu |
 | TorchVision | 0.28.0+cpu |
 | FastAPI | 0.139.2 |
 | Uvicorn | 0.50.0 |
-| python-multipart | 0.0.32 |
-| HTTPX | 0.28.1 |
 | Pillow | 12.2.0 |
 | NumPy | 2.4.4 |
-| ONNX | 1.22.0 |
 | ONNX Runtime | 1.28.0 |
-| ONNX Script | 0.7.1 |
 | .NET SDK | 10.0.400 |
 | Git | 2.55.0.windows.3 |
+| Docker Engine | 29.6.1 |
+| Docker Compose | 5.3.0 |
 
-The Python version is recorded in `.python-version`, and direct dependencies are pinned in `requirements.txt`. Source compilation and `pip check` succeed. The Python automated test suite currently contains 68 passing tests.
+The Python version is recorded in `.python-version`, and direct dependencies are pinned in `requirements.txt`. Source compilation and `pip check` succeed. The Python suite currently contains 92 passing tests.
 
-The FastAPI test client currently emits a third-party Starlette deprecation warning concerning HTTPX. It does not fail the suite and should be handled during a focused dependency update rather than mixed into the current feature work.
+The FastAPI test client emits a third-party Starlette deprecation warning concerning HTTPX. It does not fail the suite and should be handled during a focused dependency update.
 
-## Hardware Assessment
+## Dataset and Artifact Policy
 
-The development system uses an AMD Radeon 860M integrated GPU. The installed PyTorch build is CPU-only, and CUDA acceleration is unavailable.
+Datasets are stored outside Git. Dataset archives, extracted images, validation reports, generated split sidecars, feature memories, artifacts, and experiment outputs are excluded from the repository.
 
-CPU compatibility is therefore a requirement. ResNet18, chunked distance calculation, configurable resolution, and optional feature-memory sampling make local development practical. Hardware acceleration may be evaluated later without becoming necessary for reproducing the reference pipeline.
+The locally acquired MVTec AD, MVTec LOCO AD, and MVTec AD 2 datasets pass the implemented structure, readability, inventory, mask-name, and mask-content checks. Private MVTec AD 2 ground truth is not stored locally.
 
-## Implemented Model Pipeline
+Generated generalized splits use relative paths and are validated for counts, duplicates, overlap, and unsafe traversal. Defect images are not used for feature-memory construction or threshold selection.
 
-```text
-normal fitting images
--> deterministic preprocessing
--> frozen pretrained ResNet18
--> layer2 and layer3 feature maps
--> multi-scale patch embeddings
--> normal feature memory
--> exact chunked nearest-neighbor search
--> patch anomaly scores
--> configurable image-score aggregation
--> validation-derived threshold
--> normal/anomalous decision
+## Generalized Directory-Based Fitting
+
+The model can now be fitted without an MVTec-specific manifest. The generalized exporter accepts one directory containing normal images:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\export_image_directory_model.py `
+    --image-directory C:\path\to\normal-images `
+    --dataset custom-dataset `
+    --category product-category `
+    --output-directory .\outputs\model-artifacts\custom-category-320 `
+    --validation-fraction 0.2 `
+    --split-seed 42 `
+    --input-size 320 `
+    --top-fraction 0.01 `
+    --memory-fraction 1.0 `
+    --sampling-seed 42
 ```
 
-These steps are implemented explicitly rather than hidden behind a large anomaly-detection framework. This keeps the method understandable, testable, and reusable behind the service boundary.
+The exporter:
 
-## Verified Feature Extraction
+1. discovers `.png`, `.jpg`, and `.jpeg` files recursively and case-insensitively;
+2. rejects missing, empty, or invalid source directories;
+3. creates non-overlapping deterministic fitting and validation partitions;
+4. builds the feature memory from fitting images;
+5. derives the threshold from validation images;
+6. exports `metadata.json` and `feature_memory.pt`;
+7. writes exact split membership to `training_split.json` with relative paths.
 
-For a 224 x 224 input:
+The established `export_mvtec_ad_model.py` workflow remains supported and delegates to the same reusable training implementation.
 
-| Output | Shape |
-| --- | --- |
-| ResNet18 `layer2` | `(1, 128, 28, 28)` |
-| ResNet18 `layer3` | `(1, 256, 14, 14)` |
-| Combined feature map | `(1, 384, 28, 28)` |
-| Patch embeddings | `(784, 384)` |
+## Generalized Bottle Verification
 
-For a 320 x 320 input:
-
-| Output | Shape |
-| --- | --- |
-| ResNet18 `layer2` | `(1, 128, 40, 40)` |
-| ResNet18 `layer3` | `(1, 256, 20, 20)` |
-| Combined feature map | `(1, 384, 40, 40)` |
-| Patch embeddings | `(1600, 384)` |
-
-The backbone remains in evaluation mode, and none of its parameters require gradients. The current baseline uses pretrained representations without fine-tuning.
-
-## Verified ONNX Feasibility
-
-An earlier ResNet18 feature-extractor export passed the ONNX checker. ONNX Runtime reproduced PyTorch output with maximum absolute differences of `0.00000241` for `layer2` and `0.00000161` for `layer3` in the tested configuration.
-
-The provisional ONNX files demonstrate feature-extractor portability but do not represent the complete anomaly-detection pipeline. The implemented backend integration now uses a separate Python service, so ONNX is an optional future portability or optimization path rather than a prerequisite.
-
-## Preprocessing Decisions
-
-The selected preprocessing pipeline is:
-
-```text
-RGB image
--> direct resize to configured square input
--> tensor conversion
--> ImageNet normalization
-```
-
-Direct resizing was selected over TorchVision's default resize-plus-center-crop pipeline because center cropping removed part of the Bottle boundary. Bottle was evaluated at 224 x 224. The Capsule reference uses 320 x 320. Future non-square categories require a deliberate padding or aspect-ratio policy.
-
-## Dataset Storage and Validation
-
-Datasets are stored outside Git. Dataset archives, extracted images, validation reports, generated model artifacts, and experiment outputs are excluded from the repository.
-
-### MVTec AD
+The first generalized export used the normal MVTec AD Bottle training directory as a generic image collection. The new exporter did not use an MVTec manifest or interpret the MVTec directory structure.
 
 | Property | Verified value |
 | --- | --- |
-| SHA-256 | `CF4313B13603BEC67ABB49CA959488F7EEDCE2A9F7795EC54446C649AC98CD3D` |
-| Categories | 15 |
-| Normal training images | 3,629 |
-| Normal test images | 467 |
-| Anomalous test images | 1,258 |
-| Ground-truth masks | 1,258 |
-| Total PNG files | 6,612 |
+| Dataset metadata | `mvtec-ad` |
+| Category | `bottle` |
+| Source normal images | 209 |
+| Fitting images | 167 |
+| Validation images | 42 |
+| Validation fraction | 0.2 |
+| Split seed | 42 |
+| Input size | 320 x 320 |
+| Patch grid | 40 x 40 |
+| Embedding dimension | 384 |
+| Feature-memory entries | 267,200 |
+| Feature-memory size | 391.41 MiB |
+| Aggregation | `top_fraction_mean` |
+| Top fraction | 0.01 |
+| Threshold | 3.2163138389587402 |
 
-### MVTec LOCO AD
+Direct inference smoke tests produced:
 
-| Property | Verified value |
-| --- | --- |
-| SHA-256 | `9E7C84DBA550FD2E59D8E9E231C929C45BA737B6B6A6D3814100F54D63AAE687` |
-| Categories | 5 |
-| Normal training images | 1,778 |
-| Normal validation images | 305 |
-| Normal test images | 575 |
-| Logical anomaly images | 561 |
-| Structural anomaly images | 432 |
-| Mask groups | 993 |
-| Mask files | 1,246 |
-| Total PNG files | 4,897 |
-
-MVTec LOCO AD mask values are validated against each category's `defects_config.json`.
-
-### MVTec AD 2
-
-| Property | Verified value |
-| --- | --- |
-| SHA-256 | `C0DED99EF32BFC8E352D52BEB44515E5B292B8598CB963AADFA91CA0763505E4` |
-| Categories | 8 |
-| Normal training images | 2,528 |
-| Normal validation images | 302 |
-| Public normal test images | 379 |
-| Public anomalous test images | 705 |
-| Public masks | 705 |
-| Private test images | 2,045 |
-| Private mixed test images | 2,045 |
-| Total PNG files | 8,709 |
-
-All implemented structure, readability, inventory, mask-name, and mask-content checks pass. Private MVTec AD 2 ground truth is not stored locally.
-
-## Machine-Readable Validation Reports
-
-Each dataset validator supports an optional `--report` argument. Schema-versioned JSON reports are written only after every validation stage succeeds. They include dataset identity, local root, inventories, image properties, mask counts, and validation-stage results. Generated reports are excluded from Git.
-
-## Deterministic Category Splits
-
-The category-configurable split generator uses seed `42`. Manifests use relative paths and are validated for counts, duplicates, overlap, and unsafe traversal.
-
-| Category | Fitting | Normal validation | Manifest |
+| Image | Score | Threshold | Decision |
 | --- | ---: | ---: | --- |
-| Bottle | 167 | 42 | `configs/splits/mvtec-ad-bottle-seed-42.json` |
-| Capsule | 175 | 44 | `configs/splits/mvtec-ad-capsule-seed-42.json` |
+| Bottle `test/good/000.png` | 2.613894 | 3.216314 | normal |
+| Bottle `test/broken_large/000.png` | 4.907190 | 3.216314 | anomalous |
 
-Official test images are excluded from fitting and threshold selection. Defect folders are used only for grouped evaluation.
+These two predictions verify artifact compatibility and basic behavior. They do not replace a complete category evaluation.
 
-## Feature Memory and Scoring
+## Backward-Compatibility Verification
 
-The complete feature memory concatenates patch embeddings from every normal fitting image. Exact nearest-neighbor distances are computed in chunks to restrict temporary memory use.
+The refactored manifest-based exporter was run with the established Capsule split and 320 x 320 configuration. It reproduced:
 
-Supported image-level aggregation methods are:
+- 175 fitting and 44 validation images;
+- a 280,000 x 384 feature memory;
+- a 410.16 MiB feature-memory file;
+- threshold `2.501821517944336`;
+- identical metadata;
+- the established feature-memory SHA-256 hash:
 
-- maximum patch score;
-- mean of the highest configurable patch-score fraction.
+```text
+51DE3F2B4FEF804E9E95900597E738E86F7044A669D2739956CBA0CC6DE65478
+```
 
-Top-one-percent mean is the selected reference aggregation. The threshold is the maximum score among normal validation images, and only scores strictly above it are anomalous.
+This confirms byte-for-byte preservation of the established Capsule feature memory through the refactoring.
 
-## Bottle Baseline Results
+## Exploratory Reference Results
 
-At 224 x 224 with complete feature memory:
+Bottle at 224 x 224 with complete feature memory:
 
 | Aggregation | Accuracy | Precision | Recall | F1 | FP | FN |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -225,13 +173,7 @@ At 224 x 224 with complete feature memory:
 | Top 1% mean | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0 | 0 |
 | Top 5% mean | 0.9759 | 0.9692 | 1.0000 | 0.9844 | 2 | 0 |
 
-These are exploratory results because the official test set was inspected during baseline analysis. They must not be presented as an untouched blind benchmark.
-
-## Capsule Generalization Results
-
-Capsule was used to test pipeline generalization beyond Bottle. Its test partition contains 23 normal and 109 anomalous images.
-
-The selected 320 x 320, complete-memory, top-one-percent configuration produced:
+Capsule at 320 x 320 with complete feature memory and top-one-percent aggregation:
 
 | Metric | Result |
 | --- | ---: |
@@ -244,11 +186,11 @@ The selected 320 x 320, complete-memory, top-one-percent configuration produced:
 | Recall | 0.9541 |
 | F1 score | 0.9674 |
 
-This configuration creates 280,000 feature-memory entries with dimension 384 and occupies approximately 410.16 MiB as float32.
+These findings are exploratory because test images were inspected during development. They are not untouched final benchmarks.
 
 ## Feature-Memory Sampling Experiment
 
-Deterministic random sampling with seed `42` was evaluated for Capsule at 320 x 320:
+Deterministic sampling with seed `42` was evaluated for Capsule at 320 x 320:
 
 | Memory | Entries | Validation + test scoring | Recall | F1 | FN |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -257,19 +199,11 @@ Deterministic random sampling with seed `42` was evaluated for Capsule at 320 x 
 | 50% | 140,000 | 120.36 s | 0.8624 | 0.9216 | 15 |
 | 25% | 70,000 | 64.15 s | 0.6330 | 0.7753 | 40 |
 
-Sampling accelerates the search but degrades recall too strongly. Complete memory remains the quality baseline. Sampling remains a reproducible experimental option; a coverage-preserving coreset may be investigated later.
+Sampling accelerates search but degrades recall too strongly. Complete memory remains the quality baseline.
 
-## Heatmap Visualization
+## Artifact Format
 
-Patch scores can be resized, colorized, and blended with source images. Both per-image normalization and fixed threshold-based normalization are supported. Threshold-based normalization is preferred for comparisons because it uses a consistent reference.
-
-The internal FastAPI prediction endpoint now converts patch scores into a threshold-normalized RGB heatmap, resizes it to the configured model input dimensions, encodes it as PNG, and returns it as Base64 text. A real Capsule response produced a 320 x 320 PNG whose highlighted region was visually consistent with the visible defect.
-
-Heatmaps are explanatory outputs. Quantitative pixel-level localization evaluation remains open.
-
-## Exported Model Artifact
-
-Reusable artifacts are implemented as:
+The manifest-based exporter writes:
 
 ```text
 model-artifact/
@@ -277,143 +211,51 @@ model-artifact/
   feature_memory.pt
 ```
 
-Metadata records schema version, dataset, category, backbone, input and patch-grid sizes, embedding dimension, aggregation configuration, threshold, sampling configuration, and feature-memory entry count.
-
-The writer validates tensor shape and contents. The loader reconstructs typed metadata and loads the tensor on CPU with `weights_only=True`. Round-trip persistence and invalid configurations are covered by tests.
-
-## Reference Capsule Artifact
-
-| Property | Value |
-| --- | --- |
-| Dataset | `mvtec-ad` |
-| Category | `capsule` |
-| Backbone | `resnet18` |
-| Input size | `320 x 320` |
-| Patch grid | `40 x 40` |
-| Embedding dimension | 384 |
-| Feature-memory entries | 280,000 |
-| Feature-memory size | 410.16 MiB |
-| Aggregation | `top_fraction_mean` |
-| Top fraction | 0.01 |
-| Memory fraction | 1.0 |
-| Threshold | 2.501821517944336 |
-
-The artifact is stored locally below `outputs/model-artifacts/` and excluded from Git. It has not been published as a release asset.
-
-## File-Path and Stream Inference
-
-The artifact can classify an image without fitting or validation data. Inference recreates the configured input size from artifact metadata, applies the versioned preprocessing implementation, extracts embeddings, performs exact scoring, applies the saved aggregation rule, and compares the score with the stored threshold.
-
-`predict_image` accepts a filesystem path. `predict_image_stream` accepts a binary stream and enables multipart HTTP inference without temporary path coupling.
-
-Manual parity verification using the same Capsule image produced:
+The generalized exporter additionally writes:
 
 ```text
-Path score:       1.848755
-Stream score:     1.848755
-Score difference: 0.000000000000
-Same threshold:   True
-Same decision:    True
+model-artifact/
+  metadata.json
+  feature_memory.pt
+  training_split.json
 ```
 
-Reference CLI predictions:
+Metadata records dataset, category, backbone, input and patch-grid sizes, embedding dimension, aggregation, threshold, sampling configuration, and feature-memory entry count. The split sidecar records seed, requested validation fraction, counts, and exact fitting and validation membership.
 
-| Image | Score | Threshold | Decision | Prediction time |
-| --- | ---: | ---: | --- | ---: |
-| Capsule `test/good/000.png` | 1.848755 | 2.501822 | normal | 1.44 s |
-| Capsule `test/poke/000.png` | 4.992109 | 2.501822 | anomalous | 1.46 s |
+## Inference and Application Integration
 
-Artifact loading took approximately 0.20 seconds and extractor creation approximately 0.20 seconds in the recorded CLI runs.
-
-## Internal FastAPI Inference Service
-
-The model repository now contains an internal FastAPI service. At startup it:
-
-1. reads `IVAD_MODEL_ARTIFACT` and `IVAD_MEMORY_CHUNK_SIZE`;
-2. validates the service configuration;
-3. loads the model artifact once;
-4. creates the frozen feature extractor once;
-5. stores an `InferenceRuntime` in application state;
-6. reuses that runtime for subsequent requests.
-
-The current endpoints are:
+The internal FastAPI service loads one configured artifact and feature extractor at startup. It provides:
 
 ```text
 GET  /health/live
 POST /api/v1/predictions
 ```
 
-Prediction requests use multipart field `image`. A verified anomalous Capsule response was:
+Predictions contain model identity, score, threshold, decision, and a threshold-normalized Base64-encoded RGB PNG heatmap.
 
-```json
-{
-  "modelId": "mvtec-ad-capsule-320",
-  "category": "capsule",
-  "score": 4.992109298706055,
-  "threshold": 2.501821517944336,
-  "isAnomalous": true,
-  "heatmap": {
-    "contentType": "image/png",
-    "width": 320,
-    "height": 320,
-    "dataBase64": "<Base64-encoded PNG data>"
-  }
-}
-```
-
-Prediction execution is currently protected by a process-local lock. This provides a safe first concurrency policy for the shared extractor and feature memory but limits parallel throughput.
-
-## ASP.NET Core Backend Integration
-
-A separate ASP.NET Core backend repository now exists. It implements:
-
-- .NET 10 controller-based API hosting;
-- liveness and readiness endpoints;
-- Problem Details with trace identifiers;
-- configurable PNG/JPEG upload validation and a 10 MiB limit;
-- `POST /api/v1/analyses`;
-- an application-level anomaly-analyzer abstraction;
-- an HTTP adapter to the internal Python service;
-- mapping of inference-service failures to the public API contract;
-- automated unit and integration tests;
-- GitHub Actions CI.
-
-The selected integration direction is a separate long-running Python inference service. Python remains the authoritative model runtime, while ASP.NET Core remains the public API and application boundary.
-
-## Verified End-to-End Request
-
-The following local path was verified:
+The following full workflow has been verified locally:
 
 ```text
-Capsule test image
+WPF desktop client
 -> ASP.NET Core POST /api/v1/analyses
--> multipart request to FastAPI POST /api/v1/predictions
+-> FastAPI POST /api/v1/predictions
 -> loaded PyTorch artifact
--> anomaly prediction
--> client-neutral ASP.NET Core response
+-> score, threshold, decision, and heatmap
+-> ASP.NET Core response
+-> interactive WPF heatmap overlay
 ```
 
-The anomalous Capsule `poke/000.png` request returned:
+The desktop client displays normal and anomalous decisions, model details, timing, trace identifiers, and a heatmap overlay with visibility and opacity controls.
 
-```json
-{
-  "model": {
-    "id": "mvtec-ad-capsule-320",
-    "category": "capsule"
-  },
-  "score": 4.992109298706055,
-  "threshold": 2.501821517944336,
-  "decision": "anomalous",
-  "processingTimeMs": 1802,
-  "traceId": "<request-trace-id>"
-}
-```
+## Docker Stack Verification
 
-This was a manual local integration verification using the real 410.16 MiB artifact. It is not part of standard CI because generated artifacts and licensed datasets are excluded from Git.
+The separate `industrial-visual-anomaly-detection-stack` repository builds version-pinned Linux images for the Python inference service and ASP.NET Core backend. Docker Compose supplies service networking, health checks, startup ordering, read-only artifact mounting, and host port publication.
+
+A clean-clone verification confirmed inference liveness, backend liveness, backend readiness, real anomalous Capsule analysis, 320 x 320 PNG heatmap transport, teardown, and restart. The WPF client remains a native Windows process and connects to the published backend port.
 
 ## Automated Tests and Quality Checks
 
-The Python repository has 68 passing tests covering the deterministic model components, artifacts, service configuration, runtime lifecycle, FastAPI liveness, prediction response mapping, missing-upload validation, and heatmap encoding.
+The Python repository has 92 passing tests covering deterministic model components, artifacts, inference, image discovery, deterministic splitting, split-manifest persistence, generalized training invariants, service configuration, runtime lifecycle, FastAPI behavior, upload validation, and heatmap encoding.
 
 The following checks pass:
 
@@ -424,19 +266,16 @@ pip check
 git diff --check
 ```
 
-Real artifact startup, path/stream numerical parity, and the complete C#-to-Python request were verified manually and are intentionally not described as automated unit tests.
+Dataset-dependent evaluation, large artifact exports, real service startup, and cross-repository integration remain manual checks because licensed datasets and generated feature memories are not stored in Git.
 
-## Current Model Repository Structure
+## Current Repository Shape
 
 ```text
-configs/
-  splits/
-docs/
 scripts/
   create_mvtec_ad_split.py
   evaluate_mvtec_ad_category.py
+  export_image_directory_model.py
   export_mvtec_ad_model.py
-  inspect_preprocessing.py
   predict_image.py
   validate_mvtec_ad.py
   validate_mvtec_ad_2.py
@@ -445,63 +284,57 @@ src/
   industrial_visual_anomaly_detection/
     artifacts/
     datasets/
+      image_discovery.py
+      image_split.py
+      image_split_manifest.py
     models/
     service/
-      app.py
-      heatmap_encoding.py
-      prediction_response.py
-      prediction_routes.py
-      runtime.py
-      settings.py
     evaluation.py
     inference.py
     preprocessing.py
+    training.py
     visualization.py
 tests/
 ```
 
-Generated datasets, reports, ONNX files, model artifacts, caches, heatmaps, and outputs are excluded by `.gitignore`.
-
-## Confirmed Reference Decisions
+## Confirmed Decisions
 
 - normal-only unsupervised fitting;
+- one artifact per product category;
 - frozen pretrained ResNet18;
 - `layer2` and `layer3` feature fusion;
 - 384-dimensional embeddings;
 - direct square resizing and ImageNet normalization;
-- 320 x 320 Capsule input;
 - exact chunked nearest-neighbor search;
-- complete feature memory;
+- complete feature memory as the quality baseline;
 - top-one-percent mean aggregation;
 - maximum normal-validation score as threshold;
-- local artifact storage outside Git;
+- deterministic external-directory splits with recorded manifests;
 - Python as the authoritative inference runtime;
-- FastAPI as the internal model-service boundary;
-- threshold-normalized Base64 PNG heatmaps in the internal prediction response;
+- FastAPI as the internal service boundary;
 - ASP.NET Core as the public client-neutral API;
-- HTTP communication between backend and inference service;
 - ONNX as an optional future path rather than an integration prerequisite.
 
 ## Open Decisions
 
+- selection and lifecycle of multiple category artifacts;
 - preprocessing for non-square categories;
-- smarter coverage-preserving coreset selection;
-- approximate nearest-neighbor implementation;
+- minimum recommended normal-image count for external datasets;
+- validation strategy for small datasets;
+- coverage-preserving feature-memory reduction;
+- approximate nearest-neighbor search;
 - quantitative pixel-level metrics and map smoothing;
-- stronger artifact metadata and checksums;
+- stronger artifact provenance, preprocessing metadata, and checksums;
 - public artifact release contents;
-- Python-service readiness behavior;
-- timeout, cancellation, retry, and concurrency policies;
-- service packaging and process supervision;
 - future threshold calibration;
-- multi-category artifact selection.
+- timeout, retry, cancellation, and concurrency policies.
 
 ## Deferred Work
 
 - web client;
 - database persistence;
 - authentication and authorization;
-- production deployment packaging;
+- production deployment hardening;
 - GPU optimization;
 - backbone fine-tuning;
 - multi-category runtime orchestration;
@@ -512,40 +345,30 @@ Generated datasets, reports, ONNX files, model artifacts, caches, heatmaps, and 
 
 ## Immediate Next Steps
 
-1. Propagate the service-generated heatmap through the ASP.NET Core backend to the WPF desktop client.
-2. Verify the complete heatmap workflow with normal and anomalous Capsule images.
-3. Add multi-artifact loading or explicit category selection for Bottle and Capsule.
-4. Define backend timeout, cancellation, and retry behavior explicitly.
-5. Add structured timing and failure logging.
-6. Add lightweight cross-service contract coverage where practical.
-7. Evaluate packaging and artifact provisioning for deployment.
-8. Update documentation and release notes after the heatmap milestone is complete.
+1. Evaluate the generalized workflow on a non-MVTec normal-image collection.
+2. Define the external dataset contract and minimum useful image counts.
+3. Add artifact evaluation against optional normal and anomalous test directories.
+4. Decide how multiple category artifacts are selected by the inference service and backend.
+5. Strengthen artifact provenance, preprocessing metadata, and checksums.
+6. Investigate coverage-preserving memory reduction and faster nearest-neighbor search.
+7. Update release documentation after the generalized training milestone is finalized.
 
 ## Last Verified Status
 
-As of 2026-08-17:
+As of 2026-08-19:
 
-- all three acquired MVTec datasets are validated;
-- machine-readable dataset reports are supported;
-- Bottle and Capsule deterministic manifests are versioned;
-- the reusable Python anomaly pipeline is implemented;
-- configurable 224 x 224 and 320 x 320 preprocessing is verified;
-- exact patch-level scoring and configurable aggregation are implemented;
-- Bottle and Capsule evaluations have been completed;
-- the selected Capsule baseline achieves 0.9541 recall and 0.9674 F1 in the exploratory evaluation;
-- random memory sampling was evaluated and rejected as the quality baseline;
-- anomaly heatmaps are implemented;
-- artifacts can be exported and loaded;
-- a 410.16 MiB Capsule artifact was verified;
-- path and stream inference produced identical results for the verified image;
-- the FastAPI service loads and reuses the configured artifact;
-- the prediction response includes a verified 320 x 320 threshold-normalized Base64 PNG heatmap;
-- a real good Capsule image was classified as normal through direct inference;
-- a real poke image was classified as anomalous through the service;
-- the ASP.NET Core backend successfully called the Python service;
-- the complete local response included model identity, score, threshold, decision, duration, and trace identifier;
-- 68 Python tests pass;
-- the WPF desktop client completes the initial backend-driven image-analysis workflow;
-- the web client does not yet exist.
+- 92 Python tests pass;
+- compilation, dependency, and whitespace checks pass;
+- normal PNG and JPEG images can be discovered recursively;
+- deterministic fitting and validation splits are independent of MVTec;
+- exact split membership is recorded in `training_split.json`;
+- a 320 x 320 Bottle artifact was fitted directly from a normal-image directory;
+- known normal and defective Bottle images produced the expected decisions;
+- the established Capsule artifact remains byte-for-byte reproducible;
+- the FastAPI service returns anomaly decisions and heatmaps;
+- the backend forwards the verified analysis contract;
+- the desktop client displays interactive heatmap overlays;
+- the Docker Compose stack runs the versioned backend and inference service from a clean clone;
+- generated datasets and artifacts remain excluded from Git.
 
-The next active milestone is propagating anomaly heatmaps through the backend to the WPF desktop client, followed by multi-category artifact selection.
+The next active milestone is validating the generalized workflow on genuinely external data, followed by explicit multi-category artifact selection.

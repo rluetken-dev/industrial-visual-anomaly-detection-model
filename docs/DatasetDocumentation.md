@@ -22,6 +22,8 @@ It distinguishes official source information, locally verified facts, project de
 | MVTec LOCO AD | Structural and logical anomaly detection | 3,644 stated inspection images, 5 categories | Verified with local count discrepancy | Later generalization candidate |
 | MVTec AD 2 | Advanced anomaly detection under challenging conditions | More than 8,000 images, 8 scenarios | Verified | Later robustness candidate |
 
+The generalized training workflow also accepts user-provided normal-image directories. Such image collections are not treated as official benchmark datasets and require their own provenance, licensing, privacy, and redistribution records.
+
 ## Official Sources and Licenses
 
 ### MVTec AD
@@ -193,13 +195,33 @@ Implemented validation establishes structure, inventory, PNG readability, record
 
 It does not prove annotation semantics, model performance, archive equality with an official checksum, redistribution rights, unbiased evaluation, or production suitability.
 
+## External Normal-Image Input Contract
+
+The generalized training workflow accepts a directory containing normal images for one coherent object or texture category.
+
+Input requirements:
+
+- supported formats are PNG, JPEG, and JPG, matched case-insensitively;
+- images are discovered recursively;
+- the directory must contain at least two unique image paths;
+- all supplied images must represent normal, defect-free examples;
+- fitting data should represent the expected production variation in position, lighting, background, and appearance;
+- images from unrelated categories must not be mixed into one artifact;
+- anomalous evaluation images must remain outside the supplied normal-image directory.
+
+The exporter creates deterministic fitting and validation partitions using the configured validation fraction and random seed. It records the resulting relative paths and counts in `training_split.json` inside the artifact directory.
+
+The split manifest supports reproducibility but does not establish image provenance, licensing, data quality, or production suitability.
+
 ## Split and Test-Isolation Policy
 
 - normal fitting images construct feature memory;
 - normal validation images determine the threshold;
 - fitting and validation partitions must not overlap;
 - manifests must cover their complete normal source set exactly once;
-- manifest paths remain relative to the dataset root;
+- generalized directory-based training creates a deterministic fitting and validation split from the discovered normal images;
+- MVTec split-manifest paths remain relative to the configured dataset root;
+- generalized `training_split.json` paths remain relative to the supplied normal-image directory;
 - test images and masks must not populate feature memory or determine thresholds.
 
 Bottle and Capsule test data was inspected and evaluated during development. Their current metrics are exploratory, not untouched final benchmark estimates.
@@ -232,6 +254,25 @@ Reference preprocessing and use:
 - masks excluded from fitting and threshold selection.
 
 Bottle test data influenced aggregation analysis, so its results remain exploratory.
+
+Generalized exporter verification:
+
+- input directory: `bottle/train/good`;
+- supported directory-based discovery used instead of a pre-existing split manifest;
+- source images: 209;
+- fitting images: 167;
+- validation images: 42;
+- split seed: 42;
+- validation fraction: 0.2;
+- input size: 320 × 320;
+- feature memory: 267,200 × 384;
+- feature-memory size: approximately 391.41 MiB;
+- threshold: approximately `3.216314`;
+- normal Bottle test image classified as normal;
+- `broken_large` Bottle test image classified as anomalous;
+- generated split recorded in `training_split.json`.
+
+This verification confirms that the generalized exporter can train and use a second category from a normal-image directory. Because the images still originate from MVTec AD, it does not yet demonstrate transfer to an independent real-world dataset.
 
 ### Capsule Reference
 
@@ -276,6 +317,10 @@ AD 2 can test lighting shifts and harder scenarios. Before evaluation, define ha
 
 Feature memories are derived from normal images and may retain source information. They remain in ignored local output directories, are not committed or published before license review, and must record their dataset, category, configuration, and size.
 
+Each artifact generated through the generalized directory workflow also contains `training_split.json`. This sidecar records the deterministic fitting and validation split using paths relative to the supplied image directory.
+
+The split manifest supports reproducibility but does not grant permission to redistribute the source images or the resulting feature memory.
+
 ## Publication Policy
 
 Until redistribution review is complete:
@@ -303,7 +348,7 @@ Exact author lists and publication details must be checked against the official 
 | Archive evidence | Sizes and SHA-256 values recorded |
 | Local validation | Passed for all three families |
 | Active family | MVTec AD |
-| First baseline | Bottle, evaluated exploratorily |
+| First baseline | Bottle, evaluated exploratorily and verified with the generalized exporter |
 | Current artifact reference | Capsule 320 × 320, full memory, top-1%-mean aggregation |
 | Bottle split | 167 fitting / 42 validation, seed 42 |
 | Capsule split | 175 fitting / 44 validation, seed 42 |
@@ -311,16 +356,21 @@ Exact author lists and publication details must be checked against the official 
 | LOCO and AD 2 model evaluation | Planned |
 | Screenshot redistribution | Open |
 | Dataset-derived artifact redistribution | Open |
+| Generalized fitting input | Recursive normal-image directory with PNG and JPEG files |
+| Generalized split record | Artifact-local `training_split.json` |
 
 ## Next Dataset Tasks
 
-1. Select a third MVTec AD category beyond Bottle and Capsule.
-2. Implement pixel-level localization metrics using existing masks.
-3. Define a protocol that avoids further configuration selection on inspected test data.
-4. Add duplicate-content detection if it provides meaningful split-safety evidence.
-5. Define the LOCO evaluation protocol and treatment of its local count discrepancy.
-6. Complete redistribution review before publishing dataset visuals or artifacts.
-7. Remove absolute paths from any validation report selected for publication.
+1. Evaluate the generalized exporter with an independently sourced, user-controlled normal-image collection.
+2. Define practical recommendations for minimum image count, image quality, and acceptable production variation.
+3. Define an evaluation workflow for separate normal and anomalous image directories.
+4. Select a third MVTec AD category beyond Bottle and Capsule.
+5. Implement pixel-level localization metrics using existing masks.
+6. Define a protocol that avoids further configuration selection on inspected test data.
+7. Add duplicate-content detection if it provides meaningful split-safety evidence.
+8. Define the LOCO evaluation protocol and treatment of its local count discrepancy.
+9. Complete redistribution review before publishing dataset visuals or artifacts.
+10. Remove absolute paths from any validation report selected for publication.
 
 ## Related Documentation
 
@@ -332,4 +382,4 @@ Exact author lists and publication details must be checked against the official 
 
 ## Last Updated
 
-2026-08-13
+2026-08-19
