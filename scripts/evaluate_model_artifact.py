@@ -284,6 +284,14 @@ def main() -> None:
         f"{metadata.aggregation_method}"
     )
     print(f"Top fraction: {metadata.top_fraction:.4f}")
+    print(
+        "Threshold method: "
+        f"{metadata.threshold_method}"
+    )
+    print(
+        "Threshold quantile: "
+        f"{metadata.threshold_quantile:.4f}"
+    )
     print(f"Threshold: {metadata.threshold:.6f}")
     print(
         "Feature memory shape: "
