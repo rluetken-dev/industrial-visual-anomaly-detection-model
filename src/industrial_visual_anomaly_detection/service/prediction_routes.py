@@ -1,9 +1,23 @@
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from PIL import UnidentifiedImageError
 
 from .heatmap_encoding import encode_heatmap_png_base64
-from .prediction_response import HeatmapResponse, PredictionResponse
+from .prediction_response import (
+    HeatmapResponse,
+    PredictionResponse,
+)
 from .runtime import InferenceRuntime
+from .runtime_registry import (
+    InferenceRuntimeRegistry,
+    UnknownModelError,
+)
 
 router = APIRouter(
     prefix="/api/v1/predictions",
@@ -15,10 +29,27 @@ router = APIRouter(
 def create_prediction(
     request: Request,
     image: UploadFile = File(...),
+    model_id: str | None = Form(
+        default=None,
+        alias="modelId",
+    ),
 ) -> PredictionResponse:
-    """Analyze one uploaded image using the loaded model runtime."""
+    """Analyze one uploaded image using the selected model."""
 
-    runtime: InferenceRuntime = request.app.state.inference_runtime
+    runtime_source: (
+        InferenceRuntime | InferenceRuntimeRegistry
+    ) = request.app.state.inference_runtime
+
+    try:
+        runtime = _select_runtime(
+            runtime_source,
+            model_id,
+        )
+    except UnknownModelError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        ) from error
 
     try:
         prediction = runtime.predict(image.file)
@@ -31,7 +62,10 @@ def create_prediction(
     heatmap_data = encode_heatmap_png_base64(
         patch_scores=prediction.patch_scores,
         threshold=prediction.threshold,
-        output_size=(runtime.input_size, runtime.input_size),
+        output_size=(
+            runtime.input_size,
+            runtime.input_size,
+        ),
     )
 
     return PredictionResponse(
@@ -47,3 +81,33 @@ def create_prediction(
             dataBase64=heatmap_data,
         ),
     )
+
+
+def _select_runtime(
+    runtime_source: (
+        InferenceRuntime | InferenceRuntimeRegistry
+    ),
+    model_id: str | None,
+) -> InferenceRuntime:
+    if isinstance(
+        runtime_source,
+        InferenceRuntimeRegistry,
+    ):
+        return runtime_source.get_runtime(model_id)
+
+    if model_id is None:
+        return runtime_source
+
+    selected_model_id = model_id.strip()
+
+    if not selected_model_id:
+        raise UnknownModelError(
+            "Requested model ID must not be empty."
+        )
+
+    if selected_model_id != runtime_source.model_id:
+        raise UnknownModelError(
+            f"Unknown model ID: {selected_model_id}"
+        )
+
+    return runtime_source

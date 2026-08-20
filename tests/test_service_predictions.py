@@ -10,6 +10,14 @@ import torch
 
 from industrial_visual_anomaly_detection.service.app import create_app
 
+from pathlib import Path
+from industrial_visual_anomaly_detection.service.model_registry_config import (
+    ModelRegistryConfiguration,
+    ModelRegistryEntry,
+)
+from industrial_visual_anomaly_detection.service.runtime_registry import (
+    InferenceRuntimeRegistry,
+)
 
 class PredictionEndpointTests(unittest.TestCase):
     def test_uploaded_image_returns_prediction_response(self) -> None:
@@ -106,6 +114,117 @@ class PredictionEndpointTests(unittest.TestCase):
         )
         runtime.predict.assert_called_once()
 
+    def test_requested_registry_model_is_used(self) -> None:
+        capsule_runtime = Mock()
+        capsule_runtime.model_id = "capsule"
+        capsule_runtime.category = "capsule"
+        capsule_runtime.input_size = 8
+
+        cashew_runtime = Mock()
+        cashew_runtime.model_id = "cashew"
+        cashew_runtime.category = "cashew"
+        cashew_runtime.input_size = 8
+        cashew_runtime.predict.return_value = SimpleNamespace(
+            anomaly_score=3.5,
+            threshold=3.1,
+            is_anomalous=True,
+            patch_scores=torch.tensor(
+                [
+                    [0.0, 1.0],
+                    [2.0, 3.5],
+                ]
+            ),
+        )
+
+        configuration = ModelRegistryConfiguration(
+            default_model_id="capsule",
+            models=(
+                ModelRegistryEntry(
+                    model_id="capsule",
+                    display_name="Capsule",
+                    artifact_path=Path("artifacts/capsule"),
+                    enabled=True,
+                ),
+                ModelRegistryEntry(
+                    model_id="cashew",
+                    display_name="Cashew",
+                    artifact_path=Path("artifacts/cashew"),
+                    enabled=True,
+                ),
+            ),
+        )
+        registry = InferenceRuntimeRegistry(
+            configuration=configuration,
+            runtimes={
+                "capsule": capsule_runtime,
+                "cashew": cashew_runtime,
+            },
+        )
+        app = create_app(runtime=registry)
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/predictions",
+                data={"modelId": "cashew"},
+                files={
+                    "image": (
+                        "cashew.jpg",
+                        b"image-content",
+                        "image/jpeg",
+                    )
+                },
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(
+            "cashew",
+            response.json()["modelId"],
+        )
+        cashew_runtime.predict.assert_called_once()
+        capsule_runtime.predict.assert_not_called()
+
+    def test_unknown_registry_model_returns_not_found(
+        self,
+    ) -> None:
+        capsule_runtime = Mock()
+        capsule_runtime.model_id = "capsule"
+
+        configuration = ModelRegistryConfiguration(
+            default_model_id="capsule",
+            models=(
+                ModelRegistryEntry(
+                    model_id="capsule",
+                    display_name="Capsule",
+                    artifact_path=Path("artifacts/capsule"),
+                    enabled=True,
+                ),
+            ),
+        )
+        registry = InferenceRuntimeRegistry(
+            configuration=configuration,
+            runtimes={"capsule": capsule_runtime},
+        )
+        app = create_app(runtime=registry)
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/predictions",
+                data={"modelId": "missing"},
+                files={
+                    "image": (
+                        "image.png",
+                        b"image-content",
+                        "image/png",
+                    )
+                },
+            )
+
+        self.assertEqual(404, response.status_code)
+        self.assertEqual(
+            {"detail": "Unknown model ID: missing"},
+            response.json(),
+        )
+        capsule_runtime.predict.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

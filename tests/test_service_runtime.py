@@ -89,7 +89,23 @@ class InferenceRuntimeTests(unittest.TestCase):
             embedding_extractor=embedding_extractor,
             memory_chunk_size=1024,
         )
+    def test_explicit_model_id_overrides_artifact_directory_name(
+        self,
+    ) -> None:
+        runtime = InferenceRuntime(
+            artifact_path=Path("artifacts/storage-directory"),
+            artifact=SimpleNamespace(
+                metadata=SimpleNamespace(category="cashew")
+            ),
+            embedding_extractor=Mock(),
+            memory_chunk_size=4096,
+            model_id="visa-cashew-q95-320",
+        )
 
+        self.assertEqual(
+            "visa-cashew-q95-320",
+            runtime.model_id,
+        )
 
 if __name__ == "__main__":
     unittest.main()
