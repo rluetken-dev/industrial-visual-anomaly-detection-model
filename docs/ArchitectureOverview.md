@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document describes the implemented architecture, repository boundaries, data flow, model-fitting workflow, artifact contract, inference-service integration, and current evolution path of the Industrial Visual Anomaly Detection system.
+This document describes the implemented architecture, repository boundaries, model-fitting workflow, artifact and registry contracts, inference-service integration, and current evolution path of the Industrial Visual Anomaly Detection system.
 
 The system consists of independently versioned repositories for:
 
@@ -17,103 +17,103 @@ The system consists of independently versioned repositories for:
 ### Implemented and Verified
 
 - validation of MVTec AD, MVTec LOCO AD, and MVTec AD 2;
-- recursive discovery of normal PNG and JPEG images from external directories;
+- recursive discovery of normal PNG and JPEG images;
 - deterministic fitting and validation splits;
-- portable split records with relative image paths;
+- portable split records with relative paths;
 - frozen ResNet18 multi-scale feature extraction;
 - 384-dimensional patch embeddings;
 - complete and optionally sampled feature memories;
 - exact chunked nearest-neighbor scoring;
 - configurable normal-validation quantile thresholds;
-- dataset-independent labeled-image manifests;
-- artifact evaluation with score distributions, confusion matrices, metrics, and error lists;
+- dataset-independent evaluation manifests and metrics;
 - anomaly-map and heatmap generation;
-- reusable model-artifact export and loading;
+- schema-versioned artifact export and compatibility loading;
 - file-path and stream inference;
-- internal FastAPI inference service;
-- ASP.NET Core integration with health and error boundaries;
-- WPF image selection, preview, analysis results, and interactive heatmap overlay;
-- Docker Compose orchestration of the inference service and backend;
-- exploratory VisA Candle threshold calibration with q95 selected as a provisional candidate;
-- 111 passing automated tests in the Python repository.
+- legacy single-artifact service startup;
+- validated multi-model registry configuration;
+- startup loading of multiple enabled artifacts;
+- default and explicit runtime selection;
+- internal model-catalog and prediction endpoints;
+- ASP.NET Core catalog and prediction integration;
+- WPF runtime model selection and heatmap presentation;
+- Docker Compose orchestration with a read-only registry and artifact mount;
+- exploratory VisA Candle q95 threshold calibration;
+- 144 automated Python test methods.
 
 ### Selected Direction
 
-- Python remains authoritative for fitting, evaluation, artifact production, and model inference;
+- Python remains authoritative for fitting, evaluation, artifact production, registry validation, and model inference;
 - ASP.NET Core remains the public client-neutral API boundary;
 - clients call the backend rather than the internal Python service;
-- one fitted artifact represents one product category;
+- one fitted artifact represents one product category and model configuration;
+- one registry describes the enabled deployment set and its default model;
+- model selection uses stable identifiers rather than category-specific endpoints;
 - normal-image directories are the general fitting input;
-- MVTec manifests remain a supported reproducible specialized workflow;
+- MVTec manifests remain a reproducible specialized workflow;
 - labeled CSV manifests provide the dataset-independent evaluation boundary;
-- threshold quantiles are category-specific calibration parameters recorded in artifact metadata;
+- threshold quantiles remain category-specific calibration parameters in artifact metadata;
 - HTTP remains the cross-runtime boundary;
 - the WPF client remains native Windows software outside Docker;
 - ONNX remains an optional portability path rather than a current integration requirement.
 
 ### Open
 
-- multi-artifact loading and explicit category selection;
-- independent validation of the provisional q95 threshold strategy on previously unused data or another suitable category;
+- independent validation of provisional threshold strategies;
 - external dataset conventions and minimum useful image counts;
 - aspect-ratio handling for non-square products;
 - stronger artifact provenance and preprocessing metadata;
 - checksums and artifact integrity policies;
 - approximate nearest-neighbor search or coverage-preserving memory reduction;
+- lazy model loading and controlled registry reload;
 - quantitative pixel-level localization metrics;
 - service authentication and production deployment hardening;
 - a future web client.
 
 ## Architectural Goals
 
-- keep datasets and generated artifacts outside source control;
-- accept external normal-image collections without dataset-specific code;
+- keep datasets, registries, and generated artifacts outside source control;
+- accept external normal-image collections without dataset-specific core logic;
 - make discovery, splitting, fitting, thresholds, and artifacts reproducible;
 - keep model logic independent from CLI, HTTP, and UI concerns;
+- validate the configured deployment model set before serving requests;
 - load large artifacts once per service process;
+- select loaded models through stable identifiers;
 - keep the public API independent of Python and UI implementation details;
-- make local startup reproducible through version-pinned container builds;
 - preserve CPU-only execution;
-- prevent anomalous test images from influencing fitting or initial threshold calculation;
-- separate exploratory threshold comparison from independent final evaluation;
-- evolve artifact and HTTP contracts explicitly.
+- prevent anomalous test images from influencing fitting or initial thresholds;
+- separate exploratory calibration from independent final evaluation;
+- evolve artifact, registry, and HTTP contracts explicitly.
 
 ## System Context
 
 ```text
-External normal-image collection
+External normal-image collections
         |
         v
 Python fitting and artifact export
         |
         v
-Category-specific model artifact
+Category-specific model artifacts
         |
-        v
-Internal FastAPI inference service
-        |
-        v
-ASP.NET Core public backend
-        |
-        +--> WPF desktop client
-        |
-        `--> future web client
+        +--> models.json registry
+        |        |
+        |        v
+        +--> Internal FastAPI inference service
+                  |
+                  v
+              ASP.NET Core public backend
+                  |
+                  +--> WPF desktop client
+                  |
+                  `--> future web client
 
 Docker Compose stack
   -> builds and runs FastAPI + ASP.NET Core
-  -> mounts the selected artifact read-only
+  -> mounts registry and artifact directories read-only
   -> publishes backend and optional inference ports
 ```
 
 ## Repository Boundaries
-
-```text
-industrial-visual-anomaly-detection-model
-industrial-visual-anomaly-detection-backend
-industrial-visual-anomaly-detection-desktop
-industrial-visual-anomaly-detection-stack
-future web repository
-```
 
 ### Model Repository
 
@@ -125,6 +125,8 @@ Owns:
 - feature-memory construction and sampling;
 - anomaly scoring, threshold selection, and evaluation;
 - artifact export, validation, loading, and inference;
+- model-registry schema and validation;
+- runtime loading and model selection;
 - heatmap generation and encoding;
 - the internal FastAPI service;
 - model experiments and documentation.
@@ -134,12 +136,13 @@ Owns:
 Owns:
 
 - the public HTTP API;
-- upload validation and size limits;
+- upload and model-identifier validation;
 - Problem Details and trace identifiers;
 - liveness and readiness semantics;
-- HTTP communication with the Python service;
-- mapping internal inference responses to client-neutral contracts;
-- public configuration, logging, timeouts, and failure behavior.
+- HTTP communication with Python;
+- public model-catalog mapping;
+- mapping internal prediction responses to client-neutral contracts;
+- configuration, logging, timeouts, and failure behavior.
 
 ### Desktop Repository
 
@@ -147,68 +150,55 @@ Owns:
 
 - native Windows presentation;
 - backend health and readiness display;
+- retrieval and presentation of the model catalog;
+- selected-model state;
 - image selection and preview;
-- analysis submission and cancellation behavior;
-- result presentation;
-- interactive heatmap visibility and opacity;
+- model-specific analysis submission and cancellation;
+- result and interactive heatmap presentation;
 - WPF-specific state, commands, styles, and tests.
 
 ### Stack Repository
 
 Owns:
 
-- version-pinned inference and backend container builds;
+- inference and backend container builds from explicit source references;
 - Docker Compose networking and startup ordering;
 - health checks and host port publication;
-- read-only runtime-artifact mounting;
+- read-only registry and artifact mounting;
 - local-stack verification scripts;
 - clean-clone startup documentation.
 
-The stack repository consumes published source refs. It does not duplicate application source code or include the native WPF application in a Linux container.
+The stack does not duplicate application source or place the native WPF application in a Linux container.
 
 ## Model Repository Structure
 
 ```text
-configs/
-  splits/
-docs/
-  experiments/
-    visa-candle-threshold-calibration.md
+configs/splits/
+docs/experiments/
 scripts/
-  create_mvtec_ad_split.py
-  evaluate_model_artifact.py
-  evaluate_mvtec_ad_category.py
-  export_image_directory_model.py
-  export_mvtec_ad_model.py
-  predict_image.py
-  validate_mvtec_ad.py
-  validate_mvtec_ad_2.py
-  validate_mvtec_loco_ad.py
-src/
-  industrial_visual_anomaly_detection/
-    artifacts/
-    datasets/
-      image_discovery.py
-      image_split.py
-      image_split_manifest.py
-      labeled_image_manifest.py
-    models/
-    service/
-      app.py
-      heatmap_encoding.py
-      prediction_response.py
-      prediction_routes.py
-      runtime.py
-      settings.py
-    evaluation.py
-    inference.py
-    preprocessing.py
-    training.py
-    visualization.py
+src/industrial_visual_anomaly_detection/
+  artifacts/
+  datasets/
+  models/
+  service/
+    app.py
+    heatmap_encoding.py
+    model_registry_config.py
+    model_routes.py
+    prediction_response.py
+    prediction_routes.py
+    runtime.py
+    runtime_registry.py
+    settings.py
+  evaluation.py
+  inference.py
+  preprocessing.py
+  training.py
+  visualization.py
 tests/
 ```
 
-Virtual environments, datasets, reports, caches, ONNX exports, model artifacts, heatmaps, and experiment outputs are excluded from version control.
+Virtual environments, datasets, reports, caches, ONNX exports, registries, model artifacts, heatmaps, and experiment outputs are excluded from version control.
 
 ## Python Model Architecture
 
@@ -228,45 +218,23 @@ normal image directory
 -> training_split.json
 ```
 
-The general fitting boundary accepts explicit fitting and validation path tuples. It does not know MVTec folder conventions. Dataset-specific CLIs resolve their inputs and delegate to the same reusable training function.
+The general fitting boundary accepts explicit fitting and validation paths and does not know MVTec folder conventions. Dataset-specific CLIs resolve inputs and delegate to the reusable training function.
 
-### Image Discovery
+### Image Discovery and Splitting
 
-`discover_image_paths` recursively discovers regular files with `.png`, `.jpg`, or `.jpeg` suffixes, case-insensitively. It returns resolved paths in deterministic order and rejects missing directories or directories without supported images.
+`discover_image_paths` recursively finds `.png`, `.jpg`, and `.jpeg` files case-insensitively in deterministic order.
 
-### Deterministic Splitting
+`create_image_path_split` requires at least two unique paths, validates the fraction, shuffles with an explicit seed, keeps both partitions non-empty, sorts them, and verifies complete non-overlapping coverage.
 
-`create_image_path_split`:
+The generalized exporter writes relative paths to `training_split.json`, avoiding machine-specific absolute paths.
 
-- requires at least two unique paths;
-- accepts a validation fraction strictly between zero and one;
-- shuffles deterministically with an explicit seed;
-- keeps fitting and validation non-empty;
-- sorts both output partitions;
-- verifies complete coverage and no overlap.
+### Dataset-Independent Evaluation
 
-The generalized exporter writes `training_split.json` after successful artifact export. Paths are relative to the supplied image directory, which avoids machine-specific absolute paths.
+Labeled CSV manifests use `image`, `group`, and `is_anomalous`. Paths resolve relative to an explicit dataset root. Loading rejects invalid labels, duplicates, missing or unsupported files, absolute paths, and traversal outside that root.
 
-### MVTec Manifest Compatibility
-
-Versioned manifests remain available for established MVTec experiments:
-
-```text
-configs/splits/mvtec-ad-bottle-seed-42.json
-configs/splits/mvtec-ad-capsule-seed-42.json
-```
-
-Manifest loading validates counts, duplicates, overlap, absolute paths, parent traversal, and dataset-root resolution. The refactored MVTec exporter delegates to the same `train_model_artifact` implementation as the generalized directory exporter.
-
-### Dataset-Independent Evaluation Manifests
-
-`load_labeled_image_manifest` reads CSV manifests with `image`, `group`, and `is_anomalous` columns. Paths are resolved relative to an explicit dataset root. Loading rejects unsupported image suffixes, invalid Boolean labels, duplicate paths, missing files, absolute paths, and parent traversal outside the dataset root.
-
-The generic `evaluate_model_artifact.py` CLI loads an exported artifact once, scores every manifest image in batches, and reports score distributions, confusion-matrix counts, classification metrics, group-level anomaly rates, false positives, and false negatives. Dataset-specific preparation remains outside the reusable evaluation core.
+The evaluator loads one artifact once and reports distributions, confusion-matrix counts, classification metrics, group anomaly rates, false positives, and false negatives.
 
 ### Preprocessing
-
-The selected pipeline is:
 
 ```text
 image decode
@@ -276,54 +244,26 @@ image decode
 -> ImageNet normalization
 ```
 
-Direct resizing was selected because center cropping removed relevant Bottle boundaries. The artifact stores input size, while detailed interpolation, antialiasing, RGB conversion, mean, and standard deviation currently remain defined by the versioned Python implementation.
+Direct resizing avoids removing product boundaries through center cropping. Detailed interpolation, antialiasing, RGB conversion, mean, and standard deviation currently remain defined by the versioned implementation.
 
-### Feature Extraction and Embeddings
+### Feature Extraction and Memory
 
-A pretrained ResNet18 runs in evaluation mode with gradients disabled. Forward hooks capture `layer2` and `layer3`. The lower-resolution `layer3` features are resized to the `layer2` grid and concatenated, producing 384-dimensional patch embeddings.
+A pretrained ResNet18 runs in evaluation mode with gradients disabled. Hooks capture `layer2` and `layer3`; resized `layer3` features are concatenated with `layer2`, producing 384-dimensional patch embeddings.
 
 | Input | Patch grid | Embeddings per image |
 | --- | --- | ---: |
-| 224 x 224 | 28 x 28 | 784 |
-| 320 x 320 | 40 x 40 | 1,600 |
+| 224 × 224 | 28 × 28 | 784 |
+| 320 × 320 | 40 × 40 | 1,600 |
 
-### Feature Memory
+Feature memory is category-specific fitted state. It must not be mixed with incompatible preprocessing, backbone weights, layers, dimensions, or input resolutions. Deterministic sampling is supported, while complete memory remains the quality baseline.
 
-The feature memory contains embeddings from normal fitting images and is fitted category-specific state. It must not be mixed with incompatible preprocessing, backbone weights, feature layers, dimensions, or input resolutions.
+### Scoring and Thresholds
 
-Exact memory can be sampled deterministically, but experiments showed substantial Capsule recall loss. Complete memory remains the quality baseline.
+Each query patch is compared with its nearest fitting-memory embedding through exact chunked Euclidean distance. The selected image score is the mean of the highest-scoring one percent of patches.
 
-### Scoring and Threshold
+The anomaly threshold is selected from normal validation scores through a configurable quantile. Quantile `1.0` preserves maximum-normal behavior. Lower quantiles may improve recall while increasing false positives. Threshold method and quantile are stored in artifact metadata.
 
-Each query patch is compared with its nearest fitting-memory embedding through exact chunked Euclidean distance calculation. Chunking limits temporary allocations but does not reduce the stored feature memory.
-
-Patch scores are reshaped to the configured grid. The selected image score is the mean of the highest-scoring one percent of patches. The threshold is selected from normal validation scores through a configurable quantile. A quantile of `1.0` preserves the former maximum-normal behavior. Scores strictly above the threshold are anomalous.
-
-Lower quantiles generally increase anomaly recall while also increasing false-positive risk. The selected threshold method and quantile are category-specific calibration state and are stored in artifact metadata.
-
-Test labels, defect folders, and masks are excluded from fitting and initial threshold calculation. If labeled test results are later used to compare quantiles, that comparison is exploratory calibration and must not be presented as an independent final evaluation.
-
-### Visualization
-
-Patch-score grids can be resized, normalized, colorized, and blended with source images. The service uses threshold-based normalization, generates an RGB image at model-input resolution, encodes it as PNG, and transports it as Base64 text.
-
-Heatmaps are explanatory aids. They do not establish localization accuracy without quantitative comparison against masks.
-
-## Training Orchestration
-
-`ModelTrainingConfiguration` centralizes:
-
-- batch size;
-- nearest-neighbor memory chunk size;
-- input size;
-- top-score fraction;
-- normal-validation threshold quantile;
-- feature-memory sampling fraction;
-- sampling seed.
-
-`train_model_artifact` owns dataset construction, preprocessing, extractor creation, feature-memory fitting, validation scoring, threshold calculation, metadata construction, artifact persistence, and timing results.
-
-CLI scripts own argument parsing, dataset-specific path resolution, automatic split creation, split-manifest persistence, and human-readable output. This prevents training logic from being duplicated across entry points.
+Test labels, defect folders, and masks are excluded from fitting and initial threshold calculation. Later comparison using labeled test results is exploratory calibration, not independent final evaluation.
 
 ## Model Artifact Architecture
 
@@ -335,205 +275,217 @@ model-artifact/
   feature_memory.pt
 ```
 
-Metadata contains:
+Metadata contains schema version, dataset, category, backbone, input and grid sizes, embedding dimension, aggregation, threshold method and quantile, sampling configuration, and memory entry count.
 
-- schema version;
-- dataset and category;
-- backbone;
-- input and patch-grid sizes;
-- embedding dimension;
-- aggregation method and fraction;
-- threshold;
-- threshold method and quantile;
-- memory fraction and sampling seed;
-- feature-memory entry count.
-
-The writer validates tensor dimensions, finiteness, entry count, and embedding dimension. New generalized artifacts use schema version 2 and record `threshold_method` and `threshold_quantile`. The loader reconstructs typed metadata, applies maximum-normal compatibility defaults when loading schema-version-1 metadata, and loads the tensor on CPU with `weights_only=True`.
+The writer validates dimensions, finiteness, entry count, and embedding dimension. New generalized artifacts use schema version 2. The loader supplies maximum-normal compatibility defaults for schema-version-1 metadata and loads tensors on CPU with `weights_only=True`.
 
 ### Generalized Split Sidecar
 
-The generalized exporter additionally creates:
+`training_split.json` records dataset and category identity, split seed, ratios, counts, and relative fitting and validation membership without local absolute paths.
+
+### Artifact Trust Boundary
+
+The current PyTorch tensor format is trusted local deployment input, not an untrusted upload format. Future schema evolution may add complete preprocessing semantics, weight identity, dependency versions, checksums, provenance, evaluation context, and licensing data.
+
+## Model Registry Architecture
+
+### Registry Layout
+
+The deployment registry is a JSON document stored beside or above its artifact directories:
 
 ```text
-training_split.json
+artifact-root/
+  models.json
+  mvtec-ad-capsule-320/
+    metadata.json
+    feature_memory.pt
+  visa-cashew-generalized-q95-320/
+    metadata.json
+    feature_memory.pt
 ```
 
-It contains dataset and category identity, seed, fitting and validation ratios, counts, and exact relative path membership. It records artifact provenance without embedding local absolute paths.
+The schema contains:
 
-### Verified Compatibility
+- `schemaVersion`;
+- `defaultModelId`;
+- an ordered `models` array;
+- stable model `id`;
+- human-readable `displayName`;
+- relative `artifactDirectory`;
+- `enabled` state.
 
-Refactoring the Capsule manifest exporter through the shared training orchestrator reproduced identical metadata and the exact established feature-memory SHA-256 hash:
+### Registry Validation
 
-```text
-51DE3F2B4FEF804E9E95900597E738E86F7044A669D2739956CBA0CC6DE65478
-```
+`ModelRegistryConfiguration` validates the complete document before runtime loading. Validation includes:
 
-### Verified VisA Candle Calibration
+- supported schema and expected fields;
+- non-empty model collection;
+- unique model identifiers;
+- unique artifact directories;
+- safe model-identifier format;
+- relative artifact paths without parent traversal;
+- at least one enabled model;
+- an enabled default model;
+- existence of every enabled artifact directory.
 
-The generalized workflow was exercised on the VisA Candle category using the official one-class split. Three artifacts used identical preprocessing, training split, sampling configuration, and feature-memory bytes. Only their normal-validation threshold quantiles differed.
+Disabled entries may reference artifacts not present locally because they are excluded from runtime loading and the public catalog.
 
-| Variant | Quantile | Threshold | Precision | Recall | Specificity | F1 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| q100 | 1.00 | 3.373678 | 1.0000 | 0.3100 | 1.0000 | 0.4733 |
-| q99 | 0.99 | 3.001366 | 1.0000 | 0.5600 | 1.0000 | 0.7179 |
-| q95 | 0.95 | 2.763051 | 0.9324 | 0.6900 | 0.9500 | 0.7931 |
+### Runtime Registry
 
-q95 is the provisional calibration candidate for subsequent validation. It is not an independently validated final result because the official Candle test images were inspected while comparing the quantiles.
+`InferenceRuntimeRegistry` loads one `InferenceRuntime` for each enabled registry entry. Every runtime owns its artifact, feature extractor, model identity, and request lock.
 
-### Future Artifact Evolution
+The registry:
 
-Future schema evolution may add:
+- preserves configured model order;
+- exposes runtime-derived category and input size;
+- identifies the default model;
+- resolves an explicit model identifier;
+- uses the default when no identifier is supplied;
+- rejects empty and unknown identifiers clearly.
 
-- complete preprocessing semantics;
-- pretrained weight identity;
-- source-code and dependency versions;
-- artifact and tensor checksums;
-- training split checksum or embedded provenance reference;
-- evaluation context and metrics;
-- license and attribution information.
-
-The current PyTorch tensor format is a trusted deployment input, not an untrusted upload format.
-
-## Python Inference APIs
-
-File-path and binary-stream APIs share the same pipeline:
-
-```text
-decode image
--> artifact-defined preprocessing
--> patch embeddings
--> exact nearest-neighbor scores
--> image aggregation
--> threshold comparison
--> score, decision, and patch grid
-```
-
-The stream boundary supports HTTP multipart uploads without coupling inference to temporary filesystem paths.
+All enabled models are loaded during startup. Dynamic reload and lazy loading are not currently implemented.
 
 ## Internal FastAPI Service
+
+### Configuration Modes
+
+The service supports two mutually exclusive sources:
+
+```text
+IVAD_MODEL_REGISTRY
+IVAD_MODEL_ARTIFACT
+```
+
+Registry mode is the multi-model deployment path. `IVAD_MODEL_ARTIFACT` preserves compatibility with the earlier single-artifact workflow. Exactly one must be configured. `IVAD_MEMORY_CHUNK_SIZE` applies to runtime nearest-neighbor processing.
 
 ### Runtime Lifecycle
 
 At startup:
 
-1. settings read `IVAD_MODEL_ARTIFACT` and `IVAD_MEMORY_CHUNK_SIZE`;
-2. configuration is validated;
-3. the artifact is loaded once;
-4. the frozen extractor is created once;
-5. both are stored in an `InferenceRuntime`;
-6. subsequent requests reuse the runtime.
+1. settings validate that exactly one model source is configured;
+2. registry mode loads and validates `models.json`;
+3. each enabled artifact and extractor is loaded into an `InferenceRuntime`;
+4. the runtimes are collected in `InferenceRuntimeRegistry`;
+5. legacy mode loads one compatible `InferenceRuntime`;
+6. the selected runtime source is stored in application state;
+7. subsequent requests reuse the loaded state.
 
-Endpoints:
+### Endpoints
 
 ```text
 GET  /health/live
+GET  /api/v1/models
 POST /api/v1/predictions
 ```
 
-The prediction endpoint accepts multipart field `image` and returns model identity, score, threshold, anomaly decision, and a threshold-normalized heatmap.
+`GET /api/v1/models` exposes the default and enabled models. Legacy mode is represented as a one-model catalog.
 
-Prediction execution is guarded by a process-local lock. This is safe for the shared runtime but limits parallel throughput. Multiple workers would duplicate the large feature memory in RAM.
+`POST /api/v1/predictions` accepts multipart field `image` and optional `modelId`. Registry mode resolves the requested runtime or falls back to the default. The response returns the actual model identifier, category, score, threshold, anomaly decision, and threshold-normalized heatmap.
 
-## ASP.NET Core Boundary
+Prediction execution is guarded by each runtime's process-local lock. This protects shared runtime state but limits parallel throughput per model. Multiple process workers would duplicate every loaded feature memory in RAM.
 
-The backend is the public trust and compatibility boundary. It owns upload limits, file-signature validation, public Problem Details, trace identifiers, readiness behavior, cancellation, and mapping of internal service responses.
+## Integration Flows
+
+### Catalog Flow
 
 ```text
-client multipart request
--> backend validation
--> application anomaly-analyzer abstraction
--> HTTP adapter
--> FastAPI prediction
--> client-neutral backend response
+models.json
+-> FastAPI runtime registry
+-> GET /api/v1/models
+-> ASP.NET Core catalog provider
+-> public GET /api/v1/models
+-> WPF model selection
 ```
 
-The backend contract does not expose Python types or UI-specific presentation instructions.
+The inference registry is authoritative. Backend and clients map the catalog rather than maintaining separate model lists.
 
-## WPF Desktop Boundary
+### Prediction Flow
 
-The desktop client calls only the backend. It owns image selection, preview, commands, busy state, result presentation, and heatmap interaction.
+```text
+client image + modelId
+-> backend validation
+-> internal multipart image + modelId
+-> FastAPI runtime selection
+-> selected model inference
+-> response with actual model identity
+-> backend response
+-> client result and heatmap
+```
 
-The verified UI overlays the heatmap on the source image with matching stretch behavior. Users can toggle visibility and adjust opacity. Decision colors remain presentation concerns derived from the backend decision.
+The backend owns public upload limits, file-signature checks, Problem Details, trace identifiers, readiness, cancellation, and compatibility mapping. The desktop owns selection state and presentation.
 
 ## Docker Compose Architecture
 
-The stack repository builds the inference and backend images from versioned Git tags. Compose provides:
+The stack builds inference and backend images from explicit source references. Compose provides:
 
 - an internal application network;
-- service-name resolution from backend to inference;
+- backend-to-inference service-name resolution;
 - inference health checks;
 - backend startup after healthy inference;
-- backend and inference liveness checks;
 - host port publication;
-- read-only artifact mounting;
+- read-only mounting of the registry and artifact root;
 - environment-based runtime configuration.
 
-The ResNet18 weights are embedded during image build so inference startup does not require network access. The fitted feature memory remains a local runtime artifact rather than part of the container image.
+ResNet18 weights are embedded during image build so startup does not require network access. Registries and fitted memories remain external runtime inputs rather than image content.
 
 ## Configuration and Persistence
 
-Reproducibility-critical model behavior belongs in artifact metadata or the split sidecar. Deployment-specific values such as ports, artifact paths, service addresses, timeouts, and memory chunk sizes belong in configuration.
+Reproducibility-critical model behavior belongs in artifact metadata or split sidecars. Deployment model membership and defaults belong in `models.json`. Ports, registry paths, service addresses, timeouts, and memory chunk sizes belong in deployment configuration.
 
 Datasets, uploaded images, generated artifacts, and heatmaps are not persisted by the current backend or desktop client.
 
 ## Security and Safety
 
 - the backend applies public upload validation and limits;
-- the Python service validates malformed or unreadable images defensively;
-- artifact paths come from controlled configuration;
-- artifacts are trusted local inputs;
-- generated artifacts and datasets remain outside Git;
+- Python validates malformed or unreadable images defensively;
+- registry and artifact paths come from controlled configuration;
+- traversal and unexpected registry fields are rejected;
+- registry files and artifacts are trusted local inputs;
+- generated data remains outside Git;
+- read-only mounts protect containerized runtime inputs;
 - the system is experimental and not certified for production inspection decisions.
 
-Authentication, encrypted service-to-service transport, secret management, hardened network isolation, signed artifacts, and production operational controls remain future work.
+Authentication, encrypted service-to-service transport, signed artifacts, secret management, hardened isolation, and production controls remain future work.
 
 ## Testing Strategy
 
-### Python Tests
-
-The current 111 tests cover:
+The current 144 Python test methods cover:
 
 - preprocessing, embeddings, memory, scoring, and evaluation;
 - artifact metadata, persistence, and invalid inputs;
 - path and stream inference;
 - image discovery and deterministic splitting;
-- split-manifest writing and path safety;
-- labeled evaluation-manifest parsing and path safety;
-- normal-score quantile selection and binary metrics;
-- schema-version-2 threshold metadata and schema-version-1 compatibility;
-- training configuration and orchestration invariants;
-- service settings and runtime lifecycle;
-- liveness, multipart prediction, validation, and heatmap encoding.
+- manifest writing and path safety;
+- threshold quantiles, metrics, and compatibility loading;
+- training configuration and orchestration;
+- registry parsing, validation, ordering, paths, defaults, and disabled entries;
+- multi-runtime loading and selection;
+- legacy and registry service startup;
+- liveness, catalog, multipart prediction, explicit selection, unknown models, validation, and heatmap encoding.
 
-Large artifacts, licensed datasets, and full cross-process integration are excluded from CI and verified manually.
-
-### Backend and Desktop Tests
-
-The backend separately tests health, Problem Details, configuration, upload validation, service mapping, heatmap contracts, and failure behavior. The desktop separately tests configuration, health communication, analysis mapping, image loading, heatmap decoding, and view-model behavior.
-
-### Stack CI
-
-The stack CI validates Compose configuration, parses the PowerShell verification script, and builds both Linux images. Real startup requires a local artifact and remains a documented manual clean-clone verification.
+Large artifacts, licensed datasets, and full cross-process integration are excluded from Python CI and verified manually. Backend, desktop, and stack repositories maintain their own boundary tests.
 
 ## Known Architectural Risks
 
 - exact nearest-neighbor search is memory and compute intensive;
-- multiple inference workers duplicate feature memory;
-- quantile thresholds are sensitive to validation-set size, representativeness, and the selected operating tradeoff;
-- selecting calibration parameters after inspecting test results compromises independent final evaluation;
+- loading every enabled model increases startup time and resident memory;
+- multiple process workers duplicate all feature memories;
+- thresholds depend on representative validation data and operating trade-offs;
+- test-informed calibration compromises independent final evaluation;
 - direct square resizing may distort non-square products;
-- one-artifact runtime configuration does not yet support automatic category selection;
 - PyTorch tensor artifacts require trusted inputs;
-- Base64 heatmaps increase internal response size;
-- service and backend contracts require coordinated versioning;
+- the registry currently lacks artifact checksums;
+- Base64 heatmaps increase response size;
+- service, backend, and client contracts require coordinated versioning;
 - dataset licenses constrain redistribution and commercial use;
-- explanatory heatmaps can be overinterpreted without localization metrics.
+- heatmaps can be overinterpreted without localization metrics.
 
 ## Current Non-Goals
 
 - supervised defect classification;
 - online learning during inference;
-- automatic selection among multiple artifacts;
+- automatic visual category recognition before model selection;
+- dynamic registry editing or hot reload;
 - public exposure of the FastAPI service;
 - untrusted artifact uploads;
 - certified production inspection;
@@ -542,48 +494,44 @@ The stack CI validates Compose configuration, parses the PowerShell verification
 
 ## Completed Architectural Milestones
 
-1. Dataset validation and machine-readable reports.
-2. Deterministic Bottle and Capsule manifests.
-3. Reusable preprocessing, feature, scoring, evaluation, and visualization modules.
-4. Complete and sampled feature-memory support.
-5. Typed artifact metadata, writer, loader, and inference.
-6. Capsule reference artifact and exploratory evaluation.
-7. FastAPI runtime with persistent artifact loading.
-8. Threshold-normalized PNG heatmap response.
-9. ASP.NET Core public integration boundary.
-10. WPF desktop analysis and interactive heatmap overlay.
-11. Docker Compose backend and inference orchestration.
-12. General PNG/JPEG directory discovery.
-13. Deterministic general fitting and validation split.
-14. Portable `training_split.json` persistence.
-15. Shared dataset-independent training orchestrator.
-16. Generalized 320 x 320 Bottle artifact verification.
-17. Byte-for-byte Capsule exporter compatibility verification.
-18. Dataset-independent labeled-manifest artifact evaluation.
-19. Configurable normal-score quantile threshold calibration.
-20. Schema-version-2 threshold metadata with schema-version-1 loading compatibility.
-21. Exploratory VisA Candle calibration with q95 selected as a provisional candidate.
-22. One hundred eleven passing Python tests.
+1. Dataset validation and deterministic manifests.
+2. Reusable preprocessing, feature, scoring, evaluation, and visualization modules.
+3. Complete and sampled feature-memory support.
+4. Typed artifact metadata, writer, loader, and inference.
+5. FastAPI runtime with persistent artifact loading and heatmap responses.
+6. ASP.NET Core and WPF MVP integration.
+7. Docker Compose backend and inference orchestration.
+8. General directory discovery and deterministic splitting.
+9. Portable `training_split.json` persistence.
+10. Dataset-independent training and evaluation workflows.
+11. Schema-version-2 threshold metadata with schema-version-1 compatibility.
+12. Exploratory VisA Candle q95 calibration.
+13. Validated model-registry contract.
+14. Startup loading of multiple enabled artifacts.
+15. Default and explicit runtime selection.
+16. Model-catalog endpoint and optional `modelId` prediction field.
+17. Backend, desktop, and Compose multi-model integration.
+18. One hundred forty-four automated Python test methods.
 
 ## Immediate Architectural Steps
 
-1. Keep the q95 threshold strategy fixed and validate it on previously unused data or another suitable category.
-2. Define a strict calibration and independent final-test protocol for future categories.
-3. Define the external dataset contract and minimum useful normal-image counts.
-4. Design explicit multi-artifact selection across service, backend, and clients.
-5. Strengthen preprocessing provenance and artifact integrity metadata.
-6. Investigate coverage-preserving memory reduction and faster search.
+1. Publish a registry-capable model-service release.
+2. Validate threshold strategies on previously unused data.
+3. Define a strict calibration and independent final-test protocol.
+4. Strengthen preprocessing provenance and artifact integrity metadata.
+5. Investigate coverage-preserving memory reduction and faster search.
+6. Evaluate lazy model loading and controlled registry reload.
 7. Add lightweight fixed-fixture cross-service contract coverage where practical.
 
 ## Related Documentation
 
-- `DevelopmentStatus.md` records verified progress and current next steps.
-- `experiments/visa-candle-threshold-calibration.md` records the exploratory quantile comparison and its methodological limitation.
+- `DevelopmentStatus.md` records verified progress and next steps.
+- `experiments/visa-candle-threshold-calibration.md` records the exploratory quantile comparison.
 - `DatasetDocumentation.md` records dataset provenance, storage, and licensing.
 - `ModelDevelopmentStrategy.md` defines fitting, validation, and experiment rules.
-- `ProjectSpecification.md` defines scope and requirements.
+- `ProjectSpecification.md` defines stable scope and requirements.
 - a future `ModelCard.md` should document a released evaluated artifact.
 
 ## Last Updated
 
-2026-08-19
+2026-08-21

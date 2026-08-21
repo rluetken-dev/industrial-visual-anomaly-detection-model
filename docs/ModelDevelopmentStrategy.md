@@ -16,14 +16,21 @@ The strategy is designed to prevent:
 
 ## Strategy Status
 
-The first end-to-end model-development and application-integration cycles are complete. Bottle established the initial pipeline, Capsule tested category generalization and artifact-based inference, and the generalized directory exporter proved that fitting no longer depends on an MVTec-specific manifest. VisA Candle has now exercised the generalized workflow on a separate dataset family, including dataset-independent artifact evaluation and exploratory threshold calibration.
+The first end-to-end model-development and application-integration cycles are complete. Bottle established the initial pipeline, Capsule tested category generalization and artifact-based inference, and the generalized directory exporter removed the dependency on MVTec-specific fitting manifests. VisA Candle exercised generalized fitting, dataset-independent evaluation, and exploratory threshold calibration. VisA Cashew provided an additional artifact for registry-based multi-model integration.
 
-The current strategy supports two fitting entry points:
+The strategy supports two fitting entry points:
 
 1. a versioned manifest for controlled dataset experiments;
 2. an external directory containing normal PNG or JPEG images.
 
 Both entry points delegate to the same dataset-independent training implementation and produce category-specific artifacts. Labeled evaluation is supplied separately through dataset-independent CSV manifests.
+
+Deployment supports two service configurations:
+
+1. legacy startup with one artifact;
+2. registry startup with multiple enabled category artifacts and one default model.
+
+Multi-model deployment does not change the fitting rule: every artifact is still trained, calibrated, evaluated, and approved independently for one declared category.
 
 ## Implemented and Verified Capabilities
 
@@ -43,9 +50,13 @@ Both entry points delegate to the same dataset-independent training implementati
 - anomaly heatmaps;
 - typed artifact writing, validation, loading, and inference;
 - path and stream inference parity;
-- persistent FastAPI inference runtime;
-- backend, desktop heatmap, and Docker-stack integration;
-- 111 passing automated Python tests.
+- persistent legacy single-artifact FastAPI runtime;
+- validated model-registry configuration;
+- startup loading of multiple enabled category artifacts;
+- default and explicit runtime selection by stable model identifier;
+- FastAPI model-catalog and model-specific prediction endpoints;
+- backend, desktop, heatmap, and Docker-stack multi-model integration;
+- 144 automated Python test methods.
 
 These capabilities establish a functioning reference implementation. They do not establish production readiness, regulatory validation, real-world transfer, or quantitative localization accuracy.
 
@@ -131,9 +142,18 @@ The implementation technically accepts two images, but that is only a structural
 
 ## Category Strategy
 
-One artifact represents one category. Bottle, Capsule, and future product categories require separate artifacts unless evidence demonstrates that a shared category definition is coherent.
+One artifact represents one category. Bottle, Capsule, Candle, Cashew, and future product categories require separate artifacts unless evidence demonstrates that a shared category definition is coherent.
 
-Category identity is stored in artifact metadata. Runtime model selection must eventually be explicit through configuration, request context, or a controlled routing layer. The current inference service loads one configured artifact at startup.
+Category identity is stored in artifact metadata. Deployment identity is represented by a stable model ID in `models.json`. The registry groups independently trained artifacts for serving but does not merge their fitting data, thresholds, or feature memories.
+
+The registry defines:
+
+- which artifact entries are enabled;
+- the relative directory of each artifact;
+- a human-readable display name;
+- one default model identifier.
+
+Clients select an available model explicitly through the backend. If a compatible request omits the model identifier, the configured registry default is used. Automatic visual recognition of the appropriate category is not implemented and must not be inferred from the image.
 
 ## Data Partition Strategy
 
@@ -332,6 +352,21 @@ The q100, q99, and q95 artifacts have identical feature-memory SHA-256 hashes. O
 
 q95 is the provisional candidate for a review-oriented workflow. It is not independently validated because the official Candle test results were inspected while comparing quantiles. The strategy therefore freezes q95 for the next validation step and prohibits further tuning against the same Candle test split.
 
+## Multi-Model Deployment Verification
+
+The local registry-based deployment has been verified with these artifact identities:
+
+```text
+mvtec-ad-capsule-320
+mvtec-ad-bottle-generalized-320
+visa-candle-generalized-q95-320
+visa-cashew-generalized-q95-320
+```
+
+The inference service loaded all enabled artifacts during startup and exposed them through through `GET /api/v1/models`. Capsule, Bottle, Candle, and Cashew were selected through the native desktop workflow. Capsule and Cashew were additionally selected explicitly through the containerized backend workflow.
+
+These checks verify registry loading, model routing, response identity, and heatmap generation. They do not replace category-specific model-quality evaluation. In particular, the successful Cashew requests are integration evidence rather than an independent Cashew benchmark.
+
 ## Experiment Management
 
 Every meaningful experiment should record:
@@ -401,17 +436,34 @@ The refactored MVTec exporter reproduced the established Capsule feature memory 
 
 Path-based CLI inference and binary-stream inference share the same artifact, preprocessing, feature extractor, scoring, aggregation, and threshold logic.
 
-The internal FastAPI service loads one configured artifact and extractor at startup and reuses them. Responses contain model ID, category, score, threshold, anomaly decision, and a threshold-normalized Base64 PNG heatmap.
+The internal FastAPI service supports two mutually exclusive startup modes:
 
-The service remains internal. ASP.NET Core owns public upload validation, limits, Problem Details, trace identifiers, readiness, and stable client-neutral contracts. The WPF client calls only the backend.
+- `IVAD_MODEL_ARTIFACT` loads one legacy artifact;
+- `IVAD_MODEL_REGISTRY` validates a registry and loads one runtime for every enabled artifact.
+
+Exactly one source must be configured. Loaded runtimes are reused across requests.
+
+The service exposes:
+
+```text
+GET  /health/live
+GET  /api/v1/models
+POST /api/v1/predictions
+```
+
+The catalog endpoint returns the default and available models. The prediction endpoint accepts multipart `image` and optional `modelId`. Registry mode selects the requested runtime or falls back to the default. Responses contain the actual model ID, category, score, threshold, anomaly decision, and a threshold-normalized Base64 PNG heatmap.
+
+The service remains internal. ASP.NET Core owns the public catalog, upload validation, limits, Problem Details, trace identifiers, readiness, and stable client-neutral contracts. The WPF client retrieves models and submits analyses only through the backend.
 
 ## Local Runtime and Deployment Strategy
 
-CPU-only inference remains the compatibility baseline. Exact search against complete memory is practical for single images but expensive for category-wide evaluation.
+CPU-only inference remains the compatibility baseline. Exact search against complete feature memories is practical for individual images but expensive for category-wide evaluation.
 
-The separate Docker Compose stack builds version-pinned inference and backend images, mounts a selected artifact read-only, supplies service networking and health checks, and verifies the local end-to-end request. The WPF desktop client remains a native Windows application outside Docker.
+Registry mode loads every enabled artifact and extractor during startup. This provides predictable request behavior but increases startup duration and resident memory with each enabled model. Multiple process workers would duplicate all loaded feature memories. Lazy loading, unloading, and registry hot reload require separate design and verification before adoption.
 
-Production authentication, network hardening, signed artifacts, monitoring, and scaled inference remain future work.
+The Docker Compose stack builds explicit inference and backend source revisions, mounts the registry and artifact root read-only, supplies service networking and health checks, and verifies model-specific requests. Changing between already loaded models does not require editing `.env` or recreating containers.
+
+The WPF desktop client remains a native Windows application outside Docker. Production authentication, network hardening, signed artifacts, monitoring, GPU execution, and scaled inference remain future work.
 
 ## Model Approval Gate
 
@@ -430,6 +482,24 @@ A category artifact may become an internal reference only when:
 - automated quality checks pass;
 - inference behavior matches the stored metadata.
 
+## Deployment Registry Approval Gate
+
+A model registry may become an internal deployment reference only when:
+
+- every enabled model has a stable unique identifier;
+- the default identifier references an enabled model;
+- artifact directories are relative, unique, and free from parent traversal;
+- every enabled artifact exists and passes artifact validation;
+- registry and artifact metadata agree on runtime model identity and category;
+- each enabled model has category-specific approval evidence;
+- the catalog exposes the intended display name, category, input size, and default state;
+- explicit and default model selection return the expected runtime;
+- unknown model identifiers fail clearly;
+- registry and artifact files remain external, ignored, and read-only in container deployments;
+- the combined startup time and memory requirement are acceptable for the target environment.
+
+Successful registry loading does not approve the model quality of every entry automatically. Each artifact retains its own fitting, calibration, evaluation, and release evidence.
+
 ## Public Release Gate
 
 A model artifact may be released publicly only when:
@@ -443,7 +513,7 @@ A model artifact may be released publicly only when:
 - limitations and intended use are documented in a Model Card;
 - no restricted dataset content is embedded unintentionally.
 
-Current local Capsule, Bottle, and VisA Candle artifacts do not yet satisfy this release gate.
+Current local Capsule, Bottle, VisA Candle, and VisA Cashew artifacts do not yet satisfy this public artifact release gate. Publishing the model-service source release does not publish or redistribute these local artifacts.
 
 ## Failure Analysis Strategy
 
@@ -463,10 +533,13 @@ False negatives are the primary inspection risk, but false positives matter oper
 
 ## Deferred Model Work
 
-- automatic multi-category artifact selection;
+- automatic visual category recognition;
+- dynamic registry hot reload;
+- lazy model loading and unloading;
 - all-category MVTec fitting;
 - MVTec LOCO AD fitting;
 - MVTec AD 2 private evaluation;
+- independent Cashew benchmark evaluation;
 - non-square preprocessing policy;
 - principled coreset selection;
 - approximate nearest-neighbor search;
@@ -500,18 +573,26 @@ False negatives are the primary inspection risk, but false positives matter oper
 18. Configurable normal-score quantile threshold selection.
 19. Schema-version-2 threshold metadata and schema-version-1 loading compatibility.
 20. Exploratory VisA Candle threshold calibration with q95 selected provisionally.
-21. One hundred eleven passing Python tests.
+21. Validated model-registry configuration and path-safety rules.
+22. Startup loading of multiple enabled category artifacts.
+23. Default and explicit runtime selection by stable model ID.
+24. FastAPI model-catalog endpoint and optional prediction `modelId`.
+25. Backend, desktop, and Docker-stack multi-model integration.
+26. Capsule, Bottle, Candle, and Cashew runtime selection verification.
+27. One hundred forty-four automated Python test methods.
 
 ## Immediate Next Steps
 
-1. Keep q95 fixed and validate the strategy on previously unused data or another suitable category.
-2. Define a strict calibration and independent final-test protocol for future categories.
-3. Define the supported external dataset contract and recommended image counts.
-4. Design explicit multi-artifact selection across service, backend, and clients.
-5. Add stronger artifact provenance, preprocessing metadata, and checksums.
-6. Investigate coverage-preserving memory reduction and faster search.
-7. Add fixed-fixture inference regression coverage where practical.
-8. Prepare a Model Card before considering public artifact distribution.
+1. Complete the registry-capable documentation update.
+2. Run the complete Python quality checks and review the intended repository diff.
+3. Publish an immutable registry-capable model-service release.
+4. Update downstream stack builds to use that release tag.
+5. Keep q95 fixed and validate the threshold strategy on previously unused evidence.
+6. Perform an independently controlled Cashew evaluation.
+7. Define recommended external dataset image counts and a strict final-test protocol.
+8. Add stronger artifact provenance, preprocessing metadata, and checksums.
+9. Investigate coverage-preserving memory reduction and faster search.
+10. Prepare a Model Card before considering public artifact distribution.
 
 ## Related Documentation
 
@@ -524,4 +605,4 @@ False negatives are the primary inspection risk, but false positives matter oper
 
 ## Last Updated
 
-2026-08-19
+2026-08-21

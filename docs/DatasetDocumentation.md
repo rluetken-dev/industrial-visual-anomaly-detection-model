@@ -21,7 +21,7 @@ It distinguishes official source information, locally verified facts, project de
 | MVTec AD | Industrial anomaly detection and localization | More than 5,000 images, 15 categories | Verified | Active model-development dataset |
 | MVTec LOCO AD | Structural and logical anomaly detection | 3,644 stated inspection images, 5 categories | Verified with local count discrepancy | Later generalization candidate |
 | MVTec AD 2 | Advanced anomaly detection under challenging conditions | More than 8,000 images, 8 scenarios | Verified | Later robustness candidate |
-| VisA | Visual anomaly detection and localization across multiple domains | 10,821 images, 12 categories | Archive verified; Candle split exercised | Active generalized-workflow evaluation dataset |
+| VisA | Visual anomaly detection and localization across multiple domains | 10,821 images, 12 categories | Archive verified; Candle and Cashew workflows exercised | Active generalized-workflow and multi-model integration dataset |
 
 The generalized training workflow also accepts user-provided normal-image directories. Such image collections are not treated as official benchmark datasets and require their own provenance, licensing, privacy, and redistribution records.
 
@@ -209,6 +209,22 @@ Verified Candle inventory:
 
 The official one-class split is defined by `split_csv/1cls.csv`. The category-local `image_anno.csv` provides image labels and mask relationships but does not define the train/test partition.
 
+Verified Cashew integration evidence:
+
+- the extracted Cashew images were used with the generalized normal-image workflow;
+- the exported artifact is identified as `visa-cashew-generalized-q95-320`;
+- artifact category: `cashew`;
+- input size: 320 × 320;
+- feature-memory entries: 288,000;
+- threshold method: `normal_score_quantile`;
+- threshold quantile: 0.95;
+- threshold: approximately `3.134882`;
+- the artifact was loaded through the multi-model registry;
+- native desktop and containerized backend analyses completed successfully;
+- the returned model identifier and category matched the selected Cashew model.
+
+These checks verify artifact creation and system integration. They do not constitute an independently controlled Cashew benchmark evaluation.
+
 ## Machine-Readable Validation Reports
 
 All validators support `--report` and write schema-versioned UTF-8 JSON after all implemented checks pass. Schema version `1` records dataset identity, resolved root, status, categories, inventories, image dimensions and modes, and mask-validation counts.
@@ -389,6 +405,34 @@ All three variants use feature-memory files with identical SHA-256 hashes. Their
 
 q95 is the provisional calibration candidate for a review-oriented workflow. Because the official test split was inspected while selecting it, future validation must keep q95 fixed and use previously unused evidence.
 
+### Cashew Multi-Model Integration
+
+Cashew was added as a second active VisA category to verify that the generalized artifact workflow and registry-based runtime are not tied to Candle or MVTec categories.
+
+Verified artifact identity:
+
+```text
+visa-cashew-generalized-q95-320
+```
+
+Verified metadata:
+
+- dataset: `visa`;
+- category: `cashew`;
+- input size: 320 × 320;
+- patch grid: 40 × 40;
+- embedding dimension: 384;
+- feature-memory entries: 288,000;
+- aggregation: `top_fraction_mean`;
+- top fraction: 0.01;
+- threshold method: `normal_score_quantile`;
+- threshold quantile: 0.95;
+- threshold: approximately `3.134882`.
+
+The artifact was loaded together with Capsule, Bottle, and Candle through `models.json`. Cashew was selected explicitly through the desktop and containerized backend workflows without recreating the inference service.
+
+The completed requests verify dataset ingestion, artifact compatibility, registry loading, model routing, and heatmap generation. No independent Cashew accuracy, recall, specificity, or F1 result is claimed yet.
+
 ## Future Dataset Evaluation
 
 ### MVTec LOCO AD
@@ -408,6 +452,8 @@ Feature memories are derived from normal images and may retain source informatio
 Each artifact generated through the generalized directory workflow also contains `training_split.json`. This sidecar records the deterministic fitting and validation split using paths relative to the supplied image directory.
 
 Schema-version-2 artifact metadata records the threshold method and quantile. Loading remains compatible with schema-version-1 artifacts through maximum-normal defaults.
+
+The deployment-level `models.json` registry is not part of an individual dataset or model artifact. It references multiple artifact directories by stable model identifier and records which entries are enabled and which model is the default. The registry remains a local generated runtime input, is excluded from Git, and does not grant redistribution rights for any referenced artifact or source dataset.
 
 The split manifest supports reproducibility but does not grant permission to redistribute the source images or the resulting feature memory.
 
@@ -442,6 +488,8 @@ Exact author lists and publication details must be checked against the official 
 | First baseline | Bottle, evaluated exploratorily and verified with the generalized exporter |
 | Established service artifact reference | Capsule 320 × 320, full memory, top-1%-mean aggregation |
 | Current calibration candidate | VisA Candle q95, pending independent confirmation |
+| Additional active VisA integration category | Cashew q95 artifact, integration verified without an independent benchmark claim |
+| Local multi-model deployment set | Capsule, Bottle, Candle, and Cashew referenced through `models.json` |
 | Bottle split | 167 fitting / 42 validation, seed 42 |
 | Capsule split | 175 fitting / 44 validation, seed 42 |
 | Pixel-level benchmark metrics | Planned |
@@ -456,15 +504,16 @@ Exact author lists and publication details must be checked against the official 
 ## Next Dataset Tasks
 
 1. Keep q95 fixed and validate the threshold strategy on previously unused data or another suitable category.
-2. Define a strict calibration and independent final-test protocol for future categories.
-3. Define practical recommendations for minimum image count, image quality, and acceptable production variation.
-4. Add a dedicated full VisA structural and mask validator if broader VisA use is pursued.
-5. Select a third MVTec AD category beyond Bottle and Capsule.
-6. Implement pixel-level localization metrics using existing masks.
-7. Add duplicate-content detection if it provides meaningful split-safety evidence.
-8. Define the LOCO evaluation protocol and treatment of its local count discrepancy.
-9. Complete redistribution review before publishing dataset visuals or artifacts.
-10. Remove absolute paths from any validation report selected for publication.
+2. Perform an independently controlled Cashew evaluation without tuning against its evaluation images.
+3. Define a strict calibration and independent final-test protocol for future categories.
+4. Define practical recommendations for minimum image count, image quality, and acceptable production variation.
+5. Add a dedicated full VisA structural and mask validator if broader VisA use is pursued.
+6. Select a third MVTec AD category beyond Bottle and Capsule.
+7. Implement pixel-level localization metrics using existing masks.
+8. Add duplicate-content detection if it provides meaningful split-safety evidence.
+9. Define the LOCO evaluation protocol and treatment of its local count discrepancy.
+10. Complete redistribution review before publishing dataset visuals or artifacts.
+11. Remove absolute paths from any validation report selected for publication.
 
 ## Related Documentation
 
@@ -477,4 +526,4 @@ Exact author lists and publication details must be checked against the official 
 
 ## Last Updated
 
-2026-08-19
+2026-08-21
