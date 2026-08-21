@@ -17,6 +17,7 @@ The system consists of independently versioned repositories for:
 ### Implemented and Verified
 
 - validation of MVTec AD, MVTec LOCO AD, and MVTec AD 2;
+- verified VisA Candle and Cashew ingestion and artifact workflows;
 - recursive discovery of normal PNG and JPEG images;
 - deterministic fitting and validation splits;
 - portable split records with relative paths;

@@ -35,6 +35,7 @@ Multi-model deployment does not change the fitting rule: every artifact is still
 ## Implemented and Verified Capabilities
 
 - validation of MVTec AD, MVTec LOCO AD, and MVTec AD 2;
+- verified VisA Candle and Cashew ingestion and artifact workflows;
 - recursive discovery of external PNG and JPEG images;
 - deterministic automatic fitting and validation splits;
 - portable split records using relative paths;

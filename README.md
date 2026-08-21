@@ -31,6 +31,7 @@ The output is `normal` or `anomalous`. It does not classify the exact defect typ
 ## Implemented Capabilities
 
 - validation tooling for MVTec AD, MVTec LOCO AD, and MVTec AD 2;
+- verified VisA archive ingestion and Candle and Cashew workflow integration;
 - recursive discovery of normal PNG and JPEG images from external directories;
 - deterministic fitting and validation splits;
 - portable `training_split.json` records with relative image paths;
